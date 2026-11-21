@@ -664,7 +664,9 @@ class Brain:
             if math.hypot(px_p - ccx, py_p - ccy) < cr * 0.80:
                 goal, goal_kind = (px_p, py_p), "patrol"
 
-        hunt_hp = (0.20 if v2 else p["hunt_hp"]) * (0.6 if self.press else 1.0)
+        pr1 = bool(p.get("precision_v1", False))
+        has_finish = pr1 and any((q.get("hp") or 1400.0) <= 450.0 for q in visible)
+        hunt_hp = (0.20 if (v2 or has_finish) else p["hunt_hp"]) * (0.6 if self.press else 1.0)
         if (p["hunt_enabled"] and not emergency and not self.disengage
                 and not sb_econ_lock and not gear_defer
                 and hp_frac > hunt_hp
@@ -1452,7 +1454,8 @@ class Brain:
             allow_fire = True
 
         allow_charge = (p["fire_enabled"] and not emergency
-                        and hp_frac > p["hp_floor"] and not roof_hold_fire and not tc_hold_fire)
+                        and hp_frac > p["hp_floor"] and not roof_hold_fire and not tc_hold_fire
+                        and not (pr1 and (tc_boost or (kiting and hp_frac < 0.45))))
         aim_cmd, fire, fired = self.combat.act(obs, me, combat_targets, p,
                                                allow_fire=allow_fire,
                                                allow_charge=allow_charge)
@@ -1465,8 +1468,13 @@ class Brain:
 
         # ---- torso: face the threat (front arc), otherwise scan ----------
         aim_yaw, aim_pitch = me["aim"][0], me["aim"][1]
+        recent_dmg_b = ([d for d in self.damage_bearings if t - d[1] < 2.0] if pr1 else [])
         if aim_cmd is not None:
             aim_yaw, aim_pitch = aim_cmd[0], clamp(aim_cmd[1], self.min_pitch, self.max_pitch)
+        elif recent_dmg_b:
+            # Snap immediately toward unseen attacker to stop 1.5x rear hits & gain vision!
+            aim_yaw = recent_dmg_b[-1][0]
+            aim_pitch = 0.0
         elif p["face_threat"] and threats:
             tx, ty = min(threats, key=lambda q: math.hypot(q[0] - x, q[1] - y))
             aim_yaw = math.atan2(ty - y, tx - x)

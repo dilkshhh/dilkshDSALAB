@@ -425,6 +425,19 @@ and shorter 3.2 s kite hold when `hp_frac > 0.72`.
 **Verdict:** Cutting kite duration to 3.2 s above 72 % HP and deferring early hunting cost
 −7.4 s of survival and −389 damage vs E46b. Default stays `snowball_v4: False`; E46b remains HEAD.
 
+### E48 — Precision v1 (`precision_v1`: 1-tick slew gate, rear-bearing snap, no laser charge on low-HP kite, fallback indirect mortar)
+Tested on top of E46b behind `precision_v1` (default `False`).
+
+- **E48 (`precision_v1=True`, train n=48):**
+  score **2.42** vs 2.81 E46b / 1.98 orig base (**−0.39** vs E46b, +0.44 ± 0.36 vs orig base),
+  kills **1.83** vs 2.10, death **69.1 s** vs 76.2 s (−7.1 s), dealt **3,547** vs 4,170 (−623),
+  acc **78.3 %** vs 74.9 %, cubes 1.87.
+  Per-range vs orig base: `8000:+0.31 / 11000:−0.44 / 13000:+1.44`.
+
+**Verdict:** Tightening `future_aim` from `0.10 s` (decision horizon) to `0.05 s` (1 tick)
+suppressed shots that would have aligned on tick 2 of the 2-tick decision window, cutting
+dealt damage by −623 and kills by −0.27. Default stays `precision_v1: False`; E46b remains HEAD.
+
 ---
 
 ## Rejected

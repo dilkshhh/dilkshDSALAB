@@ -205,6 +205,7 @@ class Combat:
         self.self_damage_mult = _num(mech.get("self_damage_mult"), 0.5)
         self.dt = (_num(match.get("decide_every"), 2.0)
                    / max(1.0, _num(match.get("tick_hz"), 20.0)))
+        self.tick_dt = 1.0 / max(1.0, _num(match.get("tick_hz"), 20.0))
         self.release_laser = False
         # target hysteresis: see pick_target
         self.aim_frac = _num(self.p.get("aim_height_frac"), 0.5)
@@ -258,6 +259,10 @@ class Combat:
         best = None
         best_score = 1e30
         best_lethal = False
+        indirect_best = None
+        indirect_score = 1e30
+        pr1 = bool(self.p.get("precision_v1", False))
+        mortar_ready = bool(w1_kind == "mortar" and w1.get("cooldown", 0) <= 0.15)
         focus = self.focus_id
         focus_score = None
         focus_target = None
@@ -273,6 +278,13 @@ class Combat:
                 continue
             tc = self._center(e)
             if not self.w.shot_clear(src, tc):
+                if pr1 and mortar_ready and 22.0 < d < 200.0:
+                    hp_i = e.get("hp")
+                    mx_i = _num(e.get("max_hp"), self.base_hp)
+                    sc_i = d - (80.0 * (1.0 - clamp(_num(hp_i, mx_i) / max(1.0, mx_i), 0.0, 1.0)) if hp_i is not None else 0.0)
+                    if sc_i < indirect_score:
+                        indirect_score = sc_i
+                        indirect_best = e
                 if not (self.has_mortar and self.indirect_ok and 30.0 < d < 210.0):
                     n_los += 1
                     continue
@@ -321,6 +333,8 @@ class Combat:
                 and not (wv2 and best_lethal and not focus_lethal)
                 and best_score > focus_score - self.focus_switch_margin):
             best = focus_target
+        if best is None and pr1 and indirect_best is not None:
+            best = indirect_best
         self.focus_id = best.get("id") if best is not None else None
         self.dbg_range_skip, self.dbg_los_skip, self.dbg_ok = n_range, n_los, n_ok
         return best
@@ -491,6 +505,7 @@ class Combat:
             })
 
         # --- slot 0: gun ---------------------------------------------------
+        pr1 = bool(p.get("precision_v1", False))
         w0 = weapons[0] if weapons else None
         gun_aim = None
         if w0 and w0["kind"] == "gun":
@@ -498,12 +513,13 @@ class Combat:
             pt, _ = intercept(src, tc, tv, st["speed"])
             yaw, pitch = aim_to(src, pt)
             gun_aim = (yaw, clamp(pitch, min_pitch, max_pitch))
-            fy, fp = self._future(me, yaw, pitch)
+            fy, fp = future_aim(me, yaw, pitch, self.tick_dt) if pr1 else self._future(me, yaw, pitch)
             err = shot_error(src, pt, fy, fp)
             spread = math.radians(_num(st.get("spread_deg"), 0.6)) * math.dist(src, pt)
             tol = tr * p["gun_min_hit"] + spread * 0.5
             hit_prob = clamp(1.0 - max(0.0, err - spread * 0.5) / tol, 0.0, 1.0)
-            ready = (w0.get("ammo", 1) > 0 and w0.get("reload", 0) == 0
+            gun_los = (self.w.shot_clear(src, tc) if pr1 else True)
+            ready = (gun_los and w0.get("ammo", 1) > 0 and w0.get("reload", 0) == 0
                      and w0.get("cooldown", 0) <= 0.05
                      and math.dist(src, pt) < _num(st.get("range"), 230.0))
             gate = fire_gate and ready
@@ -520,9 +536,10 @@ class Combat:
                 charge = _num(w1.get("charge"), 0.0)
                 full = max(1e-3, _num(st.get("charge"), 0.75))
                 min_charge = _num(st.get("min_charge"), 0.15)
-                pt = (tc[0] + tv[0] * dt, tc[1] + tv[1] * dt, tc[2] + tv[2] * dt)
+                ldt = self.tick_dt if pr1 else dt
+                pt = (tc[0] + tv[0] * ldt, tc[1] + tv[1] * ldt, tc[2] + tv[2] * ldt)
                 yaw, pitch = aim_to(src, pt)
-                fy, fp = self._future(me, yaw, pitch)
+                fy, fp = future_aim(me, yaw, pitch, self.tick_dt) if pr1 else self._future(me, yaw, pitch)
                 err = shot_error(src, pt, fy, fp)
                 lrange = _num(st.get("range"), 280.0)
                 dist_pt = math.dist(src, pt)
@@ -558,6 +575,7 @@ class Combat:
                         add(1, "laser", (yaw, pitch), pt, tr * 1.15,
                             2.0, True, False, hold=True)
                     elif (w1.get("cooldown", 0) <= 0.05 and fire_gate and not near_light
+                            and (charge_ok if pr1 else True)
                             and dist_pt < lrange):
                         # Start charging simultaneously with gun fire
                         add(1, "laser", (yaw, pitch), pt, tr * 1.15,

@@ -215,6 +215,8 @@ DEFAULT = {
     "snowball_v4": False,         # A/B test on top of snowball_v3
     "sb4_laser_standoff": 82.0,   # ideal standoff when holding laser (hitscan range, zero enemy lightning)
     "sb4_gear_until": 38.0,       # defer bare-gun hunt until w1 equipped (still fire 100% if in LOS!)
+    # --- precision v1 (E48): 1-tick laser slew/lead, rear-bearing snap, no self-slow on laser-duck, finish hunt, fallback indirect mortar
+    "precision_v1": False,        # A/B test on top of E46b snowball_v3
 }
 
 
