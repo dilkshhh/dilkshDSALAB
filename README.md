@@ -11,6 +11,7 @@ free economy or favourable fights.
 | --- | --- |
 | `bot.py` | Entrypoint: thin adapter around `mechfight.run`. |
 | `brain.py` | Decision core: mode selection, zone rotation, threat handling. |
+| `intel.py` | Belief records with source/confidence tags; server-tracked positions, uncertain sound/beam/event sectors, explicit unknowns. |
 | `world.py` | 1 m arena model: solid column tops, overhangs, 9-point body collision, LOS. |
 | `nav.py` | Navigation grid + bounded A* + local steering + collision-safe heading filter. |
 | `zone.py` | Circle interpolation and safe-point selection. |
@@ -55,10 +56,13 @@ python3 check/check.py --map-dir /arena -- docker run --rm -i --network none \
 
 Paired practice runs, same seeds, external protocol-speaking bots. Only the
 paired difference is meaningful; absolute values are not comparable with the
-official practice score.
+official practice score. **No official practice submission has been made yet.**
 
 | Experiment | Paired delta | Decision |
 | --- | --- | --- |
+| Protocol-first belief layer (D1/D2: server-tracked positions, uncertain sound sectors) | +0.04 ± 0.07 (24 paired, harsh) | neutral; retained for protocol correctness and as arbiter input |
+| Single torso-aim arbiter (D3) | +0.54 ± 0.28 (24 paired, harsh) / +0.71 ± 0.59 (24 paired, mild) | retained; positive but variance is high |
+| Combined D1/D2/D3 | +0.63 ± 0.25 (24 paired, harsh) / +1.50 ± 0.40 (24 paired, mild) | retained |
 | 1 m engine-accurate collision + composed-heading validation | fixed a hard wedging bug (bot was farmed to death by one drone at t≈70 s) | adopted |
 | Aggression (`aggression` 0.95 / 0.7) | 0.00 / −0.31 | rejected |
 | LOS-breaking cover | 0.00 ± 0.07 | optional, off by default |

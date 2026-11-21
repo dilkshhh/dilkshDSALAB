@@ -13,6 +13,7 @@ import random
 from combat import Combat, clamp, wrap, size_scale, target_center
 from cover import find_cover
 from econ import choose_take, held_kinds, loot_goal, pick_upgrade, seek_goal
+from intel import Intel
 from nav import Planner, safe_heading
 from params import load
 from world import NullWorld, World
@@ -26,6 +27,7 @@ class Brain:
         # load() also honours BOT_PARAMS, which is how local A/B variants are
         # injected into a protocol-speaking child process.
         self.p = load(params)
+        self.intel_enabled = bool(self.p.get("intel_enabled", True))
         self.seed = int(hello.get("seed", 0))
         self.rng = random.Random(self.seed)
         self.slot = int(hello.get("slot", 0))
@@ -45,7 +47,8 @@ class Brain:
             self.world = NullWorld()
         self.nav = Planner(self.world)
         self.zone = ZoneModel(cfg, self.seed)
-        self.combat = Combat(self.world, self.p)
+        self.intel = Intel(hello, self.world, self.p)
+        self.combat = Combat(self.world, self.p, cfg)
         self.memory_s = float(cfg.get("vision", {}).get("memory_s", 5.0))
         self.vision_range = float(cfg.get("vision", {}).get("range", 200.0))
         self.near_range = float(cfg.get("vision", {}).get("near_range", 45.0))
@@ -64,6 +67,9 @@ class Brain:
         self.recent_damage = 0.0
         self.damage_bearings = []
         self.sound_points = []
+        self.sound_pressure = 0.0
+        self.sound_bearing = None
+        self.sectors = []
         self.last_hp = 1400.0
         self.spotted = False
         self.last_fire_t = -1e9
@@ -97,32 +103,46 @@ class Brain:
                     self.damage_bearings.append((b, t, float(e.get("amount", 0))))
         self.damage_bearings = [d for d in self.damage_bearings if t - d[1] < 6.0]
 
-        for m in obs.get("mechs", []):
-            if m.get("kind") != "mech":
-                continue
-            self.enemies[int(m["id"])] = {
-                "pos": list(m["pos"]), "vel": list(m.get("vel", [0, 0, 0])),
-                "t": t, "hp": m.get("hp", 1400), "cubes": m.get("cubes", 0),
-                "weapons": m.get("weapons", []), "charging": m.get("charging", False),
-                "aim": list(m.get("aim", [0, 0])),
-            }
-        for k in list(self.enemies):
-            if t - self.enemies[k]["t"] > self.memory_s:
-                del self.enemies[k]
+        if self.intel_enabled:
+            # D1: `obs.mechs` positions are already the server's real current
+            # positions for `vision.memory_s`; do not dead-reckon them.
+            # D2: sounds/beams/events become uncertain bearing sectors, not
+            # exact pseudo-positions.
+            self.intel.update(obs)
+            self.sectors = self.intel.sector_contacts()
+            self.sound_pressure = self.intel.sound_pressure()
+            self.sound_bearing = self.intel.sound_bearing()
+        else:
+            # Legacy path, retained unchanged for paired ablations.
+            for m in obs.get("mechs", []):
+                if m.get("kind") != "mech":
+                    continue
+                self.enemies[int(m["id"])] = {
+                    "pos": list(m["pos"]), "vel": list(m.get("vel", [0, 0, 0])),
+                    "t": t, "hp": m.get("hp", 1400), "cubes": m.get("cubes", 0),
+                    "weapons": m.get("weapons", []), "charging": m.get("charging", False),
+                    "aim": list(m.get("aim", [0, 0])),
+                }
+            for k in list(self.enemies):
+                if t - self.enemies[k]["t"] > self.memory_s:
+                    del self.enemies[k]
 
-        pts = []
-        for s in obs.get("sounds", []):
-            kind = s.get("kind", "")
-            if kind in ("step", "boost", "jet", "reload", "npc_gun", "crate", "drop"):
-                continue
-            b = s.get("bearing")
-            if b is None:
-                continue
-            cat = s.get("dist")
-            dist = 55.0 if cat == "near" else (135.0 if cat == "mid" else 210.0)
-            pts.append((me["pos"][0] + math.cos(b) * dist,
-                        me["pos"][1] + math.sin(b) * dist, t, kind))
-        self.sound_points = [p for p in self.sound_points if t - p[2] < 4.0] + pts
+            pts = []
+            for s in obs.get("sounds", []):
+                kind = s.get("kind", "")
+                if kind in ("step", "boost", "jet", "reload", "npc_gun", "crate", "drop"):
+                    continue
+                b = s.get("bearing")
+                if b is None:
+                    continue
+                cat = s.get("dist")
+                dist = 55.0 if cat == "near" else (135.0 if cat == "mid" else 210.0)
+                pts.append((me["pos"][0] + math.cos(b) * dist,
+                            me["pos"][1] + math.sin(b) * dist, t, kind))
+            self.sound_points = [p for p in self.sound_points if t - p[2] < 4.0] + pts
+            self.sectors = []
+            self.sound_pressure = 0.0
+            self.sound_bearing = None
 
         if self.last_pos is not None:
             moved = math.hypot(me["pos"][0] - self.last_pos[0], me["pos"][1] - self.last_pos[1])
@@ -138,13 +158,15 @@ class Brain:
         return me, t, dt
 
     def _threats(self, obs, me, t):
-        """Enemy positions (visible + recent memory) and sound-derived points."""
+        """Protocol-current enemy positions only, or legacy pseudo-points."""
+        if self.intel_enabled:
+            return self.intel.threat_points()
         out = []
         x, y = me["pos"][0], me["pos"][1]
         for k, e in self.enemies.items():
             age = t - e["t"]
             px, py = e["pos"][0], e["pos"][1]
-            # dead reckoning while out of sight
+            # legacy dead reckoning while out of sight
             px += e["vel"][0] * min(age, 2.0)
             py += e["vel"][1] * min(age, 2.0)
             out.append((px, py))
@@ -157,6 +179,8 @@ class Brain:
         return out
 
     def _visible_enemies(self, obs, me, t):
+        if self.intel_enabled:
+            return self.intel.visible_dicts()
         out = []
         for k, e in self.enemies.items():
             if t - e["t"] <= 0.25:
@@ -192,13 +216,17 @@ class Brain:
         adapt = 1.0
         if p["adapt"]:
             adapt += min(1.2, self.recent_damage * 0.18)
+            if self.intel_enabled:
+                adapt += min(0.8, self.sound_pressure * p["sound_pressure_gain"])
             if t > p["late_survival_t"]:
                 adapt += 0.5
 
         # ---- goal -------------------------------------------------------
         (ccx, ccy), cr = current_circle(obs["zone"], t)
         goal_threats = threats + [(m["pos"][0], m["pos"][1]) for m in npcs]
-        goal, emergency = self.zone.choose_goal(obs, me, self.world, goal_threats, p, t)
+        goal, emergency = self.zone.choose_goal(
+            obs, me, self.world, goal_threats, p, t,
+            sectors=self.sectors if self.intel_enabled else None)
         out_by = outside_amount(x, y, (ccx, ccy), cr)
         if out_by > -0.12 * cr:
             emergency = True
@@ -456,6 +484,8 @@ class Brain:
             aim_pitch = 0.0
         elif p["scan_enabled"]:
             base = math.atan2(my, mx) if md > 1e-5 else (self.seed % 628) / 100.0
+            if self.intel_enabled and p["sound_scan"] and self.sound_bearing is not None:
+                base = self.sound_bearing
             aim_yaw = base + 0.55 * math.sin(t / max(1.0, p["scan_period_s"]) * TAU)
             aim_pitch = 0.0
         else:

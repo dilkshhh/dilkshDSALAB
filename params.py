@@ -83,6 +83,12 @@ DEFAULT = {
     "cover_max_r": 18.0,          # search radius for a hidden spot
     "cover_cache_s": 0.6,         # recompute the cover spot this often
     "cover_quiet": True,          # walk at <= step_speed while moving to cover
+    # --- protocol-first intelligence / controlled experiments ------------
+    "intel_enabled": True,        # belief layer; false restores the old dead-reckoning path
+    "sound_goal_bias": 1.0,       # soft zone-goal penalty inside uncertain sound sectors
+    "sound_pressure_gain": 0.12,  # pressure from sound/beam/damage sectors -> conservative adapt
+    "sound_scan": True,           # bias idle torso scan toward the weighted bearing evidence
+    "aim_arbiter": True,          # one final torso aim for both weapon slots; false = legacy path
     # --- adaptive / final generalisation --------------------------------
     "adapt": True,                # modulate policy by observed opponent pressure
     "ffa_mode": False,            # simulator-only: opponents are independent, not a squad

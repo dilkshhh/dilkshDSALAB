@@ -32,8 +32,12 @@ class ZoneModel:
         self.phases = zc.get("phases", [])
         self.seed = seed
 
-    def choose_goal(self, obs, me, world, threats, params, t):
-        """Pick a quiet, covered spot inside the next circle, away from threats."""
+    def choose_goal(self, obs, me, world, threats, params, t, sectors=None):
+        """Pick a quiet, covered spot inside the next circle, away from threats.
+
+        `sectors` are uncertain bearing/range contacts, not enemy positions;
+        they only apply a soft penalty to candidate goals lying inside them.
+        """
         z = obs["zone"]
         (cx, cy), r = current_circle(z, t)
         x, y, fz = me["pos"][0], me["pos"][1], me["pos"][2]
@@ -72,6 +76,11 @@ class ZoneModel:
                      + params["threat_bias"] * min(away, 220.0) * 0.10
                      - params["travel_bias"] * travel * 0.35
                      + params["slope_bias"] * height * 0.4)
+            if sectors:
+                bias = params.get("sound_goal_bias", 0.0)
+                if bias > 0.0:
+                    penalty = sum(s.penalty(gx, gy, me["pos"], t) for s in sectors)
+                    score -= bias * penalty * 20.0
             if score > best_score:
                 best_score = score
                 best = (gx, gy)
