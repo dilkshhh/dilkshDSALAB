@@ -1,31 +1,39 @@
 # ARCHITECTURE — how the bot works
 
-> Living document. Last updated **2026-11-21 20:55 UTC**.
+> Living document. Last updated **2026-11-21 21:58 UTC**.
 > If you change structure, change this file in the same commit.
 
-Python 3.13, standard library only, one process, one core, 50 ms per decision
-(**1-CPU Docker sandbox: 300/300 PASS, p50 1.6 ms, p90 6.8 ms, p99 8.8 ms, max 9.9 ms**).
+Static compiled **Go** binary (`FROM golang:1.26.1-bookworm → FROM scratch`, `4.03 MB`), standard library only, zero external dependencies, one process, one core, 50 ms per decision
+(**1-CPU Docker sandbox: 300/300 PASS, p50 3.2 ms, p90 5.5 ms, p99 9.9 ms, max 11.3 ms**).
 
-## Active Engine: `ApexBrain` (`apex.py`, default `engine_v2: True`)
+## Active Engine: `Apex-Go v2` (`cmd/mechbot/` + `internal/{proto,world,bot}/`)
 
 ```
-stdin ─► mechfight.run ─► Bot.act(obs) ─► ApexBrain.act(obs) ─► Action ─► stdout
-                                              │
-                                              ├─► _observe()      memory books, hot-target gate, exact zone hold
-                                              ├─► phase switch    Opening (≤20s Ghost/Peek) → Squad Hunt → Guard FFA (other_dead≥5)
-                                              ├─► movement        escape / unstuck / dodge_shell / zone / anti-lightning kite / cover_move / fight_move / choose_loot
-                                              ├─► fire control    4-iter -3m latency lead, lethal/full laser release, cone lightning
-                                              └─► econ            upgrade pick + ground weapon take/drop (NoMortar cookoff guard)
+stdin ─► goroutine line drainer (queue-skip) ─► safeAct(recover) ─► Bot.Act(obs) ─► AppendJSON ─► stdout
+                                                                         │
+                                                                         ├─► observe()       memory tracks, exact prism LOS, BeamFFA (segPointDist2D > 22), adaptive lead history
+                                                                         ├─► belief()        Open (24s Brawl) → Squad Hunt → Late Cautious (t≥265s / r≤72m) | Instant FFA Brawl | Duel
+                                                                         ├─► assess()        range-aware 6-band fightPlan (r+6 lightning fix) + live exchange model
+                                                                         ├─► steer()         34-candidate forward-simulated trajectory MPC (gun bullets, 3D mortar arcs, charging lasers, all-carrier anti-lightning forcefield)
+                                                                         ├─► engage()        cooldown-aware tick latency, dynamic gun speed in lead, online adaptive lead, rear_mult & cookoff lethal/priority, odd-tick laser release
+                                                                         └─► econ            config-driven upgrade pick, NoMortar FFA cookoff guard, roof/overland jump-jet nav, shrinking FinalHold
 ```
 
-| File | ~LOC | Responsibility | Key entry points |
-| --- | --- | --- | --- |
-| `apex.py` | 1150 | Active 3-phase tactical engine (`ApexBrain`), anti-lightning threat field + safe kite, 16-dir `fight_move`, bounded BFS `cover_move`, fire control | `ApexBrain.act`, `_fight_move`, `_cover_move`, `_choose_loot` |
-| `world.py` | 990 | 1 m terrain/prisms + `8×8 block_max` fast raycaster (`0.012 ms/ray`) + 3 m 8-connected nav grid, wall clearance, `main_comp`, precomputed `main_near` courtyard `escape_plan`, generation-stamped bounded A* | `World.clear`, `path2`, `line_walkable2`, `escape_plan`, `exposure` |
-| `bot.py` | 35 | Crash-safe `Bot.act` adapter selecting `ApexBrain` (`engine_v2=True`) or legacy `Brain` | `Bot.act` |
-| `params.py` | 240 | Default knobs + `BOT_PARAMS` JSON env overrides | `DEFAULT`, `load` |
+| Path | Responsibility | Key entry points |
+| --- | --- | --- |
+| `cmd/mechbot/main.go` | Zero-GC-pause (`SetGCPercent(800)`), async stdin drainer, `stripZeroFractions` resilient JSON, `BOT_PARAMS` env JSON overrides, crash-safe `defer recover()` | `main`, `safeAct` |
+| `internal/proto/proto.go` | Full `mechfight/1` protocol types and allocation-free `Action.AppendJSON` | `Hello`, `Obs`, `Action.AppendJSON` |
+| `internal/world/*.go` | Exact bilinear terrain, exact polygon prism raycasting, 2 m nav grid, wall clearance, connected components, roof/access map, overland surface A*, exposure map | `World.Raycast`, `World.Visible`, `Nav.Path`, `Nav.SurfacePath`, `Nav.Flood` |
+| `internal/bot/bot.go` | `Params`, `DefaultParams` (`Apex-Go v2`), `observe()`, track memory, fixed `BeamFFA` segment check | `Bot.Act`, `Bot.observe` |
+| `internal/bot/policy.go` | Main tactical decision loop: zone, roof/peek/slip/retreat/fight/loot, charging-laser cover break, **all-carrier anti-lightning forcefield**, **rear/cookoff target scoring**, **shrinking FinalHold** | `Bot.think`, `Bot.cubeRun`, `Bot.fightMove` |
+| `internal/bot/move.go` | 34-candidate forward-simulated trajectory MPC (`approach2` exact accel), `gatherIncoming` (bullets + integrated 3D mortar blasts), `navDir`, `unstick` | `Bot.steer`, `Bot.gatherIncoming`, `Bot.navDir` |
+| `internal/bot/combat.go` | **Cooldown-aware gun/laser latency**, head-aim fallback, mortar ballistic solver, **`rear_mult` & `cookoff` lethal laser release**, **`LaserEarlyRel`**, DPS models | `Bot.engage`, `Bot.solveDirectLat`, `Bot.solveMortar` |
+| `internal/bot/lead.go` | Online adaptive per-opponent gun lead (virtual-shot scoring + persistence) using live upgraded `gun.speed` | `Bot.leadRecord`, `Bot.gunLead` |
+| `internal/bot/plan.go` | 6-range `fightPlan` trade evaluator + coarse exploration map (`roamGoal`) | `Bot.fightPlan`, `Bot.roamGoal` |
+| `internal/bot/hide.go` | Lobby belief (`open`/`squad`/`late`/`ffa`/`duel`) with **`CautiousT=265`** & **`BeamFFA`** + `chooseHide` | `Bot.belief`, `Bot.chooseHide` |
+| `internal/bot/cover.go`, `peek.go`, `roof.go`, `hidemap.go`, `strategy.go` | `deeperCover`, laser corner-peek, rooftop climb/hold + overland jet travel, embedded `hidemap.gz`, loot/drop/upgrade/pickup logic | `Bot.deeperCover`, `Bot.overland`, `Bot.chooseLoot` |
 
-## Legacy Engine (`brain.py`, `engine_v2: False`)
+## Legacy Python Engines (`apex.py`, `brain.py` — retained in repo, superseded by `Dockerfile`)
 
 ```
 stdin ──► mechfight.run ──► Bot.act(obs) ──► Brain.act ──► Action ──► stdout

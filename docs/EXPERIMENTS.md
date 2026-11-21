@@ -498,7 +498,28 @@ Rebuilt our Python 3.13 stack with **`apex.py` (`ApexBrain`)** + upgraded **`wor
 | `#2 giddygiddyboy` (`6.19` off.) | 3.04 | 2.79 | **2.92** | 3.06 | 2.96 | **3.01** | **2.96** | **44** |
 | **`Apex v1` (Python 3.13, ADOPTED)** | **3.21** (+0.17) | **3.29** (**+0.50**) | **3.25** (**+0.34 vs #2 / +1.43 vs BASE**) | **2.90** | **3.12** (+0.17) | **3.01** (**+0.33 vs E49**) | **3.13** (**+0.17 vs #2**) | **22 (−50 %)** |
 
-*(Initial `B0_esc` pre-cooldown run scored `3.60 / 3.50` HK1 and `3.10 / 3.31` HK0 = `3.38` grand avg; final verified `Apex v1` with 300/300 Docker anti-thrash cooldown scored `3.21 / 3.29` HK1 and `2.90 / 3.12` HK0 = `3.13` grand avg, beating `#2` on both HK1 train/holdout and HK0 holdout with 4.40 holdout cubes and 2.26× trade ratio.)*
+*(Initial `B0_esc` pre-cooldown run scored `3.60 / 3.50` HK1 and `3.10 / 3.31` HK0 = `3.38` grand avg; final verified `Apex v1` (`331c2d1`) scored **5.33 official (Rank 58, `+2.81` vs 2.52)** — highest of the Python `giddy`-architecture ports, confirming the 5.0–5.33 Python raster/latency ceiling documented by multiple teams.)*
+
+### E58 — `Apex-Go v2` (Compiled Go Engine + Top-Leaderboard Synthesis + Verified Breakthrough Upgrades, ADOPTED)
+Deep-dived public MIT-licensed repos of Top `> 6.10` teams (`#4 TigerTown27 6.25`, `#5 not even close 6.25`, `#9 giddygiddyboy 6.19`, `#13 2.3% 6.19`, `#15 Wai and Jai 6.19`, `#19 @GMUNVIS 6.19`, `#20 Kanyaraasi 6.17`, `#25 Team-Xero 6.13`) and calibrated top architectures in `at-sim` (`192` matches):
+- `#4 TigerTown27 (6.25 off., Go)` crushed `#9 giddy` (`2.96`) with **`4.33` grand avg** (`4.02/5.08` HK1, `3.62/4.60` HK0), driven by exact polygon raycasting + 2 m nav + 34-candidate forward-simulated trajectory MPC `steer()` + online adaptive gun lead + range-aware `fightPlan`.
+- Diagnosed `#4`'s concrete blind spots across 192 matches: **27/192 lightning deaths** (zero anti-lightning forcefield + `fightPlan` `r=45 < 45` bug), hard-coded `252` gun speed in `leadRecord` & fixed `0.075 s` latency, no `rear_mult` (`1.5×`) / `cookoff` (`+60 %`) lethal-laser or target priority, odd-tick laser hold stall, unwired `BeamFFA`, no late-game cautious switch (`Th3r0n` `+0.35` official), and static `2 m` final-circle tolerance.
+
+Built our compiled static Go engine (`cmd/mechbot/`, `internal/{proto,world,bot}/`, `Dockerfile` → `FROM scratch`, `4.03 MB`, **300/300 PASS** in 1-CPU Docker) and ran controlled 96-match (`48 HK1 + 48 HK0`) paired ablations of every upgrade:
+- **Round 1 individual ablations vs `BASE_GO` (`4.02 HK1 / 3.62 HK0 = 3.82` train)**:
+  - **`U2_antilight`** (`AntiLightningW=180, AntiLightningPad=12` + `r+6` `fightPlan` fix + all-carrier cube guard): **`4.62 (+0.60) / 3.69 (+0.07) = 4.16 (+0.34)`**, lightning dmg `-40% to -58%`, dealt `6,829`, trade `3.01×` — **ADOPTED**.
+  - **`U4_smartfire`** (`SmartFireV2` cooldown-aware latency + dynamic `gun.speed` in lead + `rear_mult`/`cookoff` lethal & priority + `LaserEarlyRel` odd-tick release): **`4.48 (+0.46) / 3.58 = 4.03 (+0.21)`**, trade **`3.08×`**, dealt `6,751`, cubes `5.73` — **ADOPTED**.
+  - Rejected on train: `U1_nomortar` (`3.66`), `U3_laserdodge` (`3.69`), `U3b_lasercov` (`3.65`), `U6_squadpeek` (`3.76`), `U7_combattune` (`3.52`), `OverlandEarly=2.5` (`3.79`).
+- **Round 2 stacked & Round 3 full 192-match (`train + untouched holdout`) + 16-mech FFA validation** (after fixing a 1-line `BeamFFA` false-positive on missed practice beams via `segPointDist2D > 22`):
+  - Rejected on stack: `S3_plus_focus` (`4.00`), `S4_strong_al` (`4.27`), `S5_regen` (`4.14`); `OpenSecs=18` (`4.47` grand) and `OpenSecs=14` (`4.50` grand) lost to `OpenSecs=24` (`4.70` grand) on holdout.
+  - **`APEX_O24` (`Apex-Go v2`, ADOPTED)**: `U2_antilight + U4_smartfire + CautiousT=265 + fixed BeamFFA + FinalHold` (`OpenSecs=24`).
+
+| Bot (192-match Practice + 24×16-mech FFA) | TR HK1 (48) | TR HK0 (48) | HO HK1 (48) | HO HK0 (48) | **HK1 (96)** | **HK0 (96)** | **192-Match GRAND** | **16-Mech FFA (n=24)** |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `#9 giddygiddyboy` (`6.19` off.) | 3.04 | 3.06 | 2.96 | 2.79 | 3.00 | 2.92 | **2.96** | `7.11 ± 0.41` (4/24 wins) |
+| Our `Apex v1` Py (`5.33` off.) | 3.21 | 2.90 | 3.29 | 3.12 | 3.25 | 3.01 | **3.13** | — |
+| `#4 TigerTown27` (`6.25` off.) | 4.02 | 3.62 | 5.08 | 4.60 | 4.55 | 4.11 | **4.33** | `6.88 ± 0.43` (7/24 wins) |
+| **`Apex-Go v2` (ADOPTED)** | **4.96** (+0.94) | **3.65** (+0.03) | **5.40** (+0.32) | **4.81** (+0.21) | **5.18** (**+0.63**) | **4.23** (**+0.12**) | **4.70** (**+0.37 vs #4 / +1.74 vs #9**) | **`8.35 ± 0.38`** (**13/24 wins = 54.2 %**, **+1.47 vs #4**, 0 zone deaths, 2 lightning deaths!) |
 
 ---
 

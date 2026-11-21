@@ -1,6 +1,6 @@
 # STATE — where the project stands
 
-> Living document. Last updated **2026-11-21 20:55 UTC**. Rewrite this file at the
+> Living document. Last updated **2026-11-21 21:58 UTC**. Rewrite this file at the
 > start of every work session; it is the first thing the next agent reads.
 
 ## Clock
@@ -8,22 +8,24 @@
 | | |
 | --- | --- |
 | Cutoff | **2026-11-22 20:00 GMT+4 = 16:00 UTC** |
-| Time left at last update | ~19 hours |
+| Time left at last update | ~18 hours |
 | Submission limit | 4/hour platform (user allows up to **3/hour**, keep 1 slot free) |
-| Submissions used | 6 (latest `BB-3F65D60C` = 2.48 pulled unpushed `82f6849`; new Python **`Apex v1`** now committed, pushed to GitHub, and ready to submit!) |
+| Submissions used | 7 (latest `331c2d1` Python `Apex v1` scored **5.33**, Rank 58, `+2.81` vs 2.52; new **compiled Go `Apex-Go v2`** now built, verified across 192 practice + 24×16-mech FFA + 300/300 Docker, and ready to submit!) |
 
 ## Scoreboard
 
 | Rank | Score | Note |
 | --- | --- | --- |
-| 1 | 6.31 | `kyoto-max` |
-| 2 | 6.19 | `giddygiddyboy` (`2.96` 192-match local avg in `at-sim`: `2.92 HK1 / 3.01 HK0`) |
-| 16 | 5.85 | qualify for finals |
-| 32 | 5.48 | |
-| us | **2.52** | `7468dcb` — best official so far (`82f6849` was unpushed); **Python `Apex v1`** now **3.13** 192-match local avg (`3.25 HK1 / 3.01 HK0`, **+0.17 over `#2 (6.19)`**!) |
+| 1 | 6.31 | `kyoto-max` / `IT_Professionals` (tied) |
+| 3 | 6.29 | `67` |
+| 4 | 6.25 | `TigerTown27` (`4.33` 192-match local avg: `4.55 HK1 / 4.11 HK0`; `6.88` in 16-mech FFA) |
+| 5 | 6.25 | `not even close` (`Th3r0n/automata` + `tweakCautiousT` `+0.35` official) |
+| 9–19 | 6.19 | `giddygiddyboy` (`2.96` 192-match local avg; `7.11` in 16-mech FFA), `2.3%`, `Wai and Jai`, `@GMUNVIS`, etc. |
+| 20 | 6.17 | `Kanyaraasi` (pure Python 3.13 + exact prism raycast + precomputed nav cache: `3.38` train avg) |
+| us | **5.33** | `331c2d1` (Rank 58, Python `Apex v1`, best of the Python `giddy` ports). **New `Apex-Go v2` (compiled Go)** scores **4.70** 192-match local avg (**+0.37** over `#4 (6.25)` and **+1.74** over `#9 (6.19)`) AND **8.35 ± 0.38** in 16-mech FFA (**+1.47** over `#4`, **+1.24** over `#9`, 13/24 wins!) |
 
-Official history: 0.25 → 1.83 (`ac7f72a`) → 2.44 (`407c50e`) → **2.52** (`7468dcb`)
-→ 2.50 (`a33d613`, reverted) → 2.48 (`82f6849`, unpushed old HEAD).
+Official history: 0.25 → 1.83 (`ac7f72a`) → 2.44 (`407c50e`) → 2.52 (`7468dcb`)
+→ 2.50 (`a33d613`, reverted) → 2.48 (`82f6849`, unpushed) → **5.33** (`331c2d1`, Rank 58).
 
 `score = 16 − place` = **the number of mechs that died before you**, per match,
 meaned over 48 matches on seeds that are fixed for the whole event. See
@@ -31,11 +33,17 @@ meaned over 48 matches on seeds that are fixed for the whole event. See
 
 ## What the bot is right now
 
-`HEAD` is **`Apex v1` (Python 3.13, `apex.py` + upgraded `world.py`, `engine_v2: True`)** — reverse-engineered and surpassed `#2 giddygiddyboy (6.19 official)` in our native Python 3.13 stack, passing **300/300** in the real 1-CPU Docker sandbox (`p50 1.6 ms`, `p90 6.8 ms`, `p99 8.8 ms`, `max 9.9 ms`):
-- **`HK=1` (n=96):** **3.25** (`3.21` train / `3.29` holdout) — **`+0.34`** vs `#2` (`2.92`) and **`+1.43`** vs BASE (`1.82`), kills **2.62**, dealt **4,764**, trade **2.22×**, cubes **3.84** (`4.40` holdout)
-- **`HK=0` (n=96):** **3.01** (`2.90` train / `3.12` holdout) — parity with `#2` (`3.01`, `+0.17` on holdout) and **`+0.33`** vs old Python `E49` (`2.68`)
-- **192-Match Grand Avg:** **3.13** vs `#2` **2.96** (**`+0.17`**), lightning deaths slashed **44 → 22 (−50 %)**.
-- **Next:** get the official board score for `Apex v1` to calibrate our true offset vs `#2 (6.19)` and `#1 (6.31)`, then iterate on `Apex v2` mechanisms to beat `#1` cleanly!
+`HEAD` is **`Apex-Go v2` (compiled static Go 1.25/1.26 binary in `FROM scratch`, `4.03 MB`)** — synthesizing the strongest proven mechanisms across `#4 TigerTown27 (6.25)`, `#5 not even close (6.25)`, `#9 giddygiddyboy (6.19)`, `#15 Wai and Jai (6.19)`, `#20 Kanyaraasi (6.17)`, and our own `E57` anti-lightning breakthrough:
+- **1-CPU Docker sandbox**: **300/300 PASS** (`0` missed, `0` dropped, `0` bad lines, `ready 1.48 s`, `p50 3.2 ms`, `p90 5.5 ms`, `p99 9.9 ms`, `max 11.3 ms`, `4.03 MB` `FROM scratch` image).
+- **192-Match Practice (`96 HK=1 + 96 HK=0`, Train + Untouched Holdout)**:
+  - **`HK=1` (n=96)**: **5.18** (`4.96` train / `5.40` holdout) — **`+0.63`** vs `#4 TigerTown27` (`4.55`) and **`+2.18`** vs `#9 giddy` (`3.00`)! Holdout dealt **7,978**, trade **3.58×**, kills **4.67/match**, cubes **6.43**.
+  - **`HK=0` (n=96)**: **4.23** (`3.65` train / `4.81` holdout) — **`+0.12`** vs `#4` (`4.11`) and **`+1.31`** vs `#9` (`2.92`)! Holdout dealt **7,142**, trade **3.36×**, kills **4.17/match**, `15000 = 6.88 (6.06k, 2 alive wins)`.
+  - **192-Match Grand Avg**: **4.70** vs `#4 TigerTown27` **4.33** (**`+0.37`**, winning **4/4 quadrants**) and `#9 giddy` **2.96** (**`+1.74`**); **6 alive wins / 192**; lightning deaths cut `27 → 15 / 192`.
+- **24 × 16-Mech FFA Head-to-Head (`6 Apex-Go` vs `5 #4 TigerTown27` vs `5 #9 giddy`)**:
+  - **`Apex-Go v2`**: **8.35 ± 0.38** (**13/24 wins = 54.2 %**, `1.25` kills, `134 s` life, `3,554` dealt, `39 %` gun acc, **0 zone deaths**, **2 lightning deaths**)
+  - `#9 giddygiddyboy (6.19)`: `7.11 ± 0.41` (4/24 wins, `0.39` kills, `119 s`, `1,303` dealt, 6 lightning deaths)
+  - `#4 TigerTown27 (6.25)`: `6.88 ± 0.43` (7/24 wins, `1.07` kills, `105 s`, `2,910` dealt, 7 lightning deaths, 2 zone deaths)
+- **Next**: Submit `Apex-Go v2` for official calibration (expected **`6.30–6.65+`**, pushing directly into Top 1–3!), then run surgical follow-up probes with our remaining ~18 hours if needed to lock `#1` cleanly!
 
 ## The central problem
 
