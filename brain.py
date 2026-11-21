@@ -85,8 +85,48 @@ class Brain:
         self.last_damage_t = -1e9
         self.kite_dir = None
         self.kite_until = -1.0
+        self._break_dir = None
+        self._break_t = -1e9
 
     # ------------------------------------------------------------------ state
+    def _break_heading(self, x, y, z, visible, t):
+        """Pick the escape heading that hides us from the nearest shooters.
+
+        Distance alone does not stop a squad with shared vision; terrain does.
+        Headings are scored by how many of the closest threats lose line of
+        sight to the point we would occupy, plus a small bonus for opening
+        range.  Cached for kite_cover_cache_s because it costs raycasts.
+        """
+        if (self._break_dir is not None
+                and t - self._break_t < self.p["kite_cover_cache_s"]):
+            return self._break_dir
+        eyes = sorted(((e["pos"][0], e["pos"][1],
+                        e["pos"][2] + self.world.eye_height
+                        * size_scale(e.get("cubes", 0), self.world.size_per_cube))
+                       for e in visible),
+                      key=lambda q: math.hypot(q[0] - x, q[1] - y))[:2]
+        probe = self.p["kite_cover_probe"]
+        body = 0.5 * self.world.height
+        best, best_score = None, -1e18
+        for k in range(12):
+            a = k * TAU / 12.0
+            cx, cy = math.cos(a), math.sin(a)
+            if self.nav.reach(x, y, z, cx, cy) < 6.0:
+                continue
+            px, py = x + cx * probe, y + cy * probe
+            pz = self.world.ground(px, py)
+            hidden = 0
+            for ex, ey, ez in eyes:
+                if not self.world.shot_clear((ex, ey, ez), (px, py, pz + body)):
+                    hidden += 1
+            gain = min((math.hypot(px - ex, py - ey) for ex, ey, _ in eyes),
+                       default=0.0)
+            score = hidden * 60.0 + gain * 0.35
+            if score > best_score:
+                best_score, best = score, (cx, cy)
+        self._break_dir, self._break_t = best, t
+        return best
+
     def _update(self, obs):
         me = obs["self"]
         t = float(obs["t"])
@@ -309,6 +349,10 @@ class Brain:
             self.kite_until = t + p["kite_hold_s"]
         if t < self.kite_until and self.kite_dir is not None:
             kx, ky = self.kite_dir
+            if p["kite_cover"] and visible:
+                bh = self._break_heading(x, y, z, visible, t)
+                if bh is not None:
+                    kx, ky = bh
             gx, gy = x + kx * 130.0, y + ky * 130.0
             dd = math.hypot(gx - ccx, gy - ccy)
             lim = cr * 0.82

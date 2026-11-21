@@ -176,6 +176,10 @@ class Combat:
         self.dt = (_num(match.get("decide_every"), 2.0)
                    / max(1.0, _num(match.get("tick_hz"), 20.0)))
         self.release_laser = False
+        # target hysteresis: see pick_target
+        self.focus_id = None
+        self.focus_enabled = bool(self.p.get("focus_fire", True))
+        self.focus_switch_margin = _num(self.p.get("focus_switch_margin"), 55.0)
 
     # ------------------------------------------------------------------ shared
     def _pitch_limits(self, me):
@@ -193,10 +197,20 @@ class Combat:
         return future_aim(me, yaw, pitch, self.dt)
 
     def pick_target(self, me, enemies, max_range):
+        """Choose who to shoot, with hysteresis so damage is not spread.
+
+        Re-picking by distance every decision scatters fire across the squad:
+        measured 2442 damage per 1400 HP kill, i.e. 40% of our output was
+        wasted on bots that never died.  Keep hitting the same target until it
+        dies, leaves line of sight, or something much better appears.
+        """
         px, py = me["pos"][0], me["pos"][1]
         src = muzzle(me)
         best = None
         best_score = 1e30
+        focus = self.focus_id
+        focus_score = None
+        focus_target = None
         for e in enemies:
             if e.get("pos") is None:
                 continue
@@ -212,9 +226,15 @@ class Combat:
             if hp is not None and hp_conf > 0.0:
                 mx = _num(e.get("max_hp"), self.base_hp)
                 score -= 45.0 * hp_conf * (1.0 - clamp(_num(hp) / max(1.0, mx), 0.0, 1.0))
+            if focus is not None and e.get("id") == focus:
+                focus_score, focus_target = score, e
             if score < best_score:
                 best_score = score
                 best = e
+        if (focus_target is not None and self.focus_enabled
+                and best_score > focus_score - self.focus_switch_margin):
+            best = focus_target
+        self.focus_id = best.get("id") if best is not None else None
         return best
 
     # ------------------------------------------------------------------ dispatch

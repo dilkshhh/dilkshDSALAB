@@ -50,6 +50,10 @@ DEFAULT = {
     # --- weapons -------------------------------------------------------
     "weapon_pref": ["laser", "mortar", "lightning", "gun"],
     "gun_min_hit": 1.25,          # fire only if predicted miss < this * target radius
+    # Damage split across many targets produces damage but no kills, and place
+    # only improves when a bot actually dies.
+    "focus_fire": True,           # keep shooting the same target until it dies
+    "focus_switch_margin": 55.0,  # score advantage required to switch target
     "laser_min_charge": 0.45,
     "mortar_self_safe": 11.0,     # never lob a shell whose impact is closer than this
     "lightning_energy_floor": 12.0,
@@ -72,6 +76,12 @@ DEFAULT = {
     # rotation, so the mech oscillates in place and dies where it spawned.
     # Only break contact when the shooter is close enough to press the attack.
     "kite_range": 100.0,          # only kite when the nearest enemy is this close
+    # Running straight away from incoming fire is the easiest thing to lead.
+    # When breaking contact, prefer a heading that actually puts terrain
+    # between us and the shooters: occlusion stops damage, distance does not.
+    "kite_cover": True,           # steer the break toward terrain occlusion
+    "kite_cover_probe": 34.0,     # how far ahead the break heading is sampled
+    "kite_cover_cache_s": 1.0,    # recompute the break heading this often
     "weapon_seek_range": 130.0,
     "roam_loot_range": 95.0,
     "roam_omega": 0.16,           # rad/s of the exploration sweep
