@@ -27,23 +27,27 @@ Leader 5.96. 206 teams.
    vision. So every opponent death is caused by *us* or by the *environment*
    (NPC drones, zone, falls). Measured locally: `score ≈ kills + 0.7`, i.e. about
    70 % of our score is kills and 30 % is environmental attrition.
-3. **Consequence: survival is not the objective, it is a constraint.** The leader
-   at 5.96 is getting ~5.3–6 opponent deaths per match. We get ~1.3 kills. We are
-   not "slightly worse at surviving" — we are **3–4× short on kills**. Every
-   survival-only improvement we have made plateaued at a local score of ~2.0, and
-   a 14-dimension sweep over survival/engagement parameters found **no reliable
-   winner**. That is the signature of optimising the wrong objective.
+3. **Consequence: kills and survival time are the only two terms, and fighting is
+   free.** We verified the identity directly: over 16 matches, mean score 2.00 =
+   1.31 kills + 0.69 environmental deaths. And we verified that fighting costs
+   *nothing* in survival: a bot configured to never fire and never hunt still dies
+   at 56 s, versus 59 s for the default. **Survival is capped at ~60–75 s for every
+   policy we have tried (9 variants), so there is no survival reserve left to
+   trade away.** The binding constraint is damage throughput inside that ~60 s
+   window: we deal ~3200 damage and convert 1.3 kills. Five kills needs ~10,000
+   damage, which is not reachable with the starting gun alone.
 4. **The game is a sequence of duels, not a battle royale.** The squad escalates:
    "one early, more as you thin them out, all of them late" (verbatim, track
-   page). Early game is a 1v1 gift; late game is a 1v15 you cannot win. Kills must
-   be front-loaded.
+   page). Early game is a 1v1 gift; late game is a 1v15 you cannot win.
 5. **Kills snowball.** Each cube is +4 % max HP and +4 % damage (capped +40 %),
    and a kill drops 3 cubes. Killing early makes later kills cheaper. This is the
    only multiplicative growth in the game and we currently do not exploit it.
-6. **We probably fight with the starting gun most of the time.** 1400 HP / 45
-   damage = 31 hits ≈ 7.4 s of perfect fire plus reloads to kill one bot. The
-   laser is 315 damage (4.4 hits). Weapon pickups sit on the floor (40 of them).
-   Weapon acquisition is an untested, likely prerequisite for kill rate.
+6. **Weapon quality is the real damage ceiling.** 1400 HP / 45 damage = 31 gun
+   hits ≈ 7.4 s of perfect fire per kill, and we only get ~20 s of trigger time
+   before we die. The laser is 315 damage (4.4 hits) at 190 dps — roughly triple
+   the gun. Forty weapons lie on the floor and we only pick up the ones we happen
+   to walk over. Early weapon acquisition measured **+0.46 on train, +0.10 on
+   holdout** (weak, see §9.6).
 7. **Measurement is the hard part.** Seed *range* behaves as a random effect: the
    same change reads +0.67 on one range and −0.10 on another. Effects below ~0.5
    score are unresolvable at feasible sample sizes. We already published one false
@@ -147,27 +151,51 @@ yourself from §4 of the protocol and check it:
 Since the 15 house bots are one squad that never fights itself, the only ways an
 opponent dies are:
 
-| Cause | Controllable? | Local rate |
+| Cause | Controllable? | Measured rate |
 | --- | --- | --- |
-| We kill it | yes, directly | 1.27/match |
-| NPC drone kills it | indirectly (lure/aggro) | small |
-| Zone kills it | indirectly (lure/delay) | small |
-| Fall / self-splash / drowning | indirectly | small |
-| Total environmental | — | **≈0.69/match** |
+| We kill it | yes, directly | **1.31/match** |
+| NPC drone kills it | indirectly (lure/aggro) | 11 deaths / 16 matches |
+| Zone kills it | indirectly (lure/delay) | 0 observed |
+| Fall / self-splash / drowning | indirectly | 0 observed |
+| Total environmental | — | **0.69/match** |
 
-So `mean score ≈ mean kills + 0.69`.
+**Verified on 16 matches:** mean score **2.00** = 1.31 kills + 0.69 environmental
+deaths, to two decimal places. The identity is exact, not an approximation.
 
-Three hard consequences:
+### 2.1 The survival ceiling (measured, and it is the surprise)
 
-1. **A pure survival policy has a ceiling near 1.0–2.0.** You can only collect
-   environmental deaths. That is exactly where we are, and it explains why 14
-   dimensions of survival tuning produced nothing.
-2. **Marginal survival past the point where you can no longer kill is worth
-   almost nothing.** Dying at 400 s with 2 kills scores the same as dying at 150 s
-   with 2 kills, except for the environmental deaths accumulated in between.
-3. **The optimum is a kill-rate problem under a survival constraint**, not the
-   reverse. The constraint is: do not die before you have converted your HP into
-   kills.
+We assumed survival was the thing to buy. It is not buyable. Nine policy variants
+over 16 seeds each, same seed set, same opponents:
+
+| Policy | Death time | Score | Kills |
+| --- | --- | --- | --- |
+| default | 59 s | 2.00 | 1.38 |
+| **true pacifist** (never fire, never hunt) | **56 s** | 1.69 | 1.19 |
+| coward (no fire, no hunt, kite always) | 58 s | 1.75 | 1.31 |
+| no kiting, no hunting | **44 s** | 1.38 | 1.19 |
+| hide in cover always | 66 s | 2.00 | 1.50 |
+| kite always, range 200 | 74 s | 1.88 | 1.44 |
+| turtle (kite hard, high HP floor) | 73 s | 1.75 | 1.25 |
+
+Read that table carefully:
+
+1. **Fighting costs nothing.** A bot that never fires dies at 56 s; the default,
+   which fights continuously, dies at 59 s. There is no survival/aggression
+   trade-off to optimise — aggression is free.
+2. **Kiting is the only thing that buys life**, and it buys ~15 s (44 s → 74 s).
+3. **Nothing reaches 100 s.** Eight variants, and the best is 74 s. Our survival is
+   not a tuning problem; it is an architectural wall.
+
+Three consequences:
+
+1. **There is no survival reserve to trade away.** Every "be more careful"
+   experiment was doomed: the careful variants die at the same time or sooner.
+2. **Score is a damage-throughput problem inside a fixed ~60 s window.** 3200
+   damage → 1.3 kills. Five kills needs ~10,000 damage in 60 s = 167 sustained dps,
+   which is 89 % trigger time with the gun and zero misses. **Impossible with the
+   gun.** It requires the laser (190 dps) or the mortar (200 + splash).
+3. **Therefore the leverage is: weapon quality, hit rate, and target selection** —
+   not positioning for safety.
 
 ### 2.1 The escalation rule is an explicit difficulty schedule
 
@@ -749,6 +777,27 @@ the strongest local evidence that the policy should spend its effort on *creatin
 engagement opportunities (positioning, closing, weapon acquisition) rather than on
 when to pull the trigger.
 
+### 9.6 Early weapon acquisition (the most promising open lever)
+
+Motivation: §2.1 shows the gun cannot physically reach 5 kills in a 60 s life.
+The laser can. Forty weapons sit on the floor.
+
+| Config | Train (48) | Holdout (48) | Per-range (train) | Δkills |
+| --- | --- | --- | --- | --- |
+| `roam_until 45`, `weapon_seek_range 200`, hunt off | **+0.46 ± 0.30** | **+0.10 ± 0.24** | +0.44 / +0.12 / +0.81 | +0.46 / +0.19 |
+
+Train is positive on all three ranges and kills rise on both sets, but the holdout
+is mixed (+0.94 / −0.12 / −0.50). By our own standard this is **inconclusive, not
+a win** — the same profile as the configs the sweep rejected. It is recorded
+because the *mechanism* (laser → damage throughput) is the only one that can
+plausibly bridge a 3× kill gap, and because it is the one change where kills moved
+on both train and holdout.
+
+A single-match trace shows the failure mode directly: one match dealt **4463
+damage with 0 kills** while holding a lightning for 30 % of the match. Damage was
+spread across several bots, each of which regened it back at 45 HP/s. **Damage
+that does not kill is worth almost nothing in this game.**
+
 ---
 
 ## 10. Findings — the physics and economics of this game
@@ -819,32 +868,36 @@ the real squad is weaker than the emulation assumes.**
 | D11 | `dodge_vector` is 2-D closest-approach; no vertical separation, gravity or impact timing | Poor mortar/laser dodging |
 | — | Fire gate only scales utility, never suppresses fire | Every "discipline" experiment was a no-op (documented) |
 | — | No heal cycle (disengage → clean 5 s → re-engage) | Fights are all-in |
-| — | No weapon-acquisition priority | Probably fighting with the gun only |
+| — | No weapon-acquisition priority | Damage capped at gun rate |
+| — | Damage is spread, so regen erases it (4463 dealt → 0 kills in one trace) | ~40 % of output wasted |
 | — | No drop contest, no NPC luring, no mortar-into-cluster play | Three unused kill mechanisms |
 
-### 12.2 Open opportunities, ranked by expected value (my judgement)
+### 12.2 Open opportunities, ranked by expected value (my judgement, post-measurement)
 
-1. **Kill-rate policy.** Replace survival-first with "win sequential duels": close
-   to 25–40 m on the isolated hunter, strafe, focus fire, disengage only below
-   ~35 % HP or when a second hunter arrives, heal, repeat. Expected effect: the
-   only path to 4–6 kills/match. Risk: high variance, may regress survival.
-2. **Weapon acquisition.** A quiet detour to the nearest floor weapon (40 on the
-   map) when nothing is within ~60 m. The laser is a 7× damage upgrade over the
-   gun per hit. Untested in isolation (our only economy test bundled loud crate
-   shooting).
-3. **Supply-drop contest at t = 70/140/210.** Full heal + 3 cubes for 4 s. Contest
+1. **Damage conversion.** We deal 3200–4500 per match and kill 1.3. Either the
+   damage is spread across targets that regen it back, or it is overkill. A
+   kill requires 1400 damage inside the regen window; anything less is refunded at
+   45 HP/s. **Fix the conversion before adding aggression** — it is the cheapest
+   multiplier we have, and it needs no new mechanics, only stricter target
+   commitment (do not switch, do not chip, do not poke at range).
+2. **Weapon acquisition.** The only mechanism that raises the damage ceiling.
+   Measured +0.46 train / +0.10 holdout, kills up on both. Weak but mechanistically
+   necessary: the gun cannot reach 5 kills in 60 s, the laser can.
+3. **Weapon-choice quality.** We currently take whatever we walk over, and
+   `weapon_pref` ranks lightning above the gun even though lightning is 45 m /
+   60 damage. Picking the *right* weapon (laser > mortar > gun > lightning for this
+   matchup) and dropping a bad one is a free win.
+4. **Supply-drop contest at t = 70/140/210.** Full heal + 3 cubes for 4 s. Contest
    when no enemy is within ~50 m and we are below ~70 % HP.
-4. **Mortar-into-cluster in the endgame.** When ≥2 enemies are within 7 m of each
-   other and 40–120 m away, lob a shell. 520 damage per shell vs 200 self-damage
-   risk at 50 % mult.
-5. **NPC luring.** Drag drone aggro into a house bot and break contact. 25 dps
-   for free on a target we are not trading with.
-6. **Heal-cycle controller.** Explicit state machine: `engage → break (occlusion,
-   boost) → clean 5 s → heal to 80 % → re-engage`. Currently regen is accidental.
-7. **Kill-loot collection.** 3 cubes at the corpse we just made, 7 s window, only
+5. **Mortar-into-cluster.** When ≥2 enemies are within 7 m of each other and
+   40–120 m away, lob a shell: 520 damage per shell vs 200 self-damage risk.
+6. **NPC luring.** Drag drone aggro into a house bot and break contact. 25 dps for
+   free on a target we are not trading with — and NPCs already kill 0.69 bots per
+   match without our help.
+7. **Heal-cycle controller.** `engage → break (occlusion, boost) → clean 5 s →
+   heal to 80 % → re-engage`. Regen is currently accidental.
+8. **Kill-loot collection.** 3 cubes at the corpse we just made, 7 s window, only
    when nothing is within 55 m. Built, default off, unmeasured.
-8. **Threat-count-aware aggression.** Escalation is a known function of our kill
-   count; the policy should explicitly trade kill rate against hunter count.
 
 ### 12.3 Things that are *not* worth doing (already measured)
 
@@ -902,9 +955,18 @@ Please return, in this order:
 
 ### 15.1 Critique (short)
 Where is the reasoning in this document wrong? Specifically check:
-- the scoring identity in §2 and the `score ≈ kills + 0.69` decomposition;
-- the claim that survival-first has a ceiling near 2.0;
-- the claim that weapon acquisition is a prerequisite for kill rate;
+
+- the scoring identity in §2 and the `score = kills + 0.69` decomposition;
+- **the central puzzle:** every policy we try dies at 44–74 s, and the best score
+  any of them reaches locally is ~2.6. Yet the leaderboard leader is at 5.96, which
+  needs ~5 opponent deaths per match. Either (a) they kill 5 bots in ~60 s, which
+  requires ~10,000 damage and therefore the laser, or (b) they survive far longer
+  than our 60 s and collect environmental deaths as the zone collapses, or (c) our
+  local proxy is systematically harsher than the real squad. **Tell me which you
+  believe and what would discriminate between them**, because the entire strategy
+  hinges on it;
+- the claim that weapon acquisition is a prerequisite for kill rate (measured, but
+  only +0.46 train / +0.10 holdout — argue with it);
 - whether "never fight each other" has any loophole we are missing (e.g. can we
   make them damage each other with splash, knockback, or by body-blocking?).
 
