@@ -411,6 +411,20 @@ Metrics (96-match means): dealt 2,728 → **4,103** (+1,375, +50 %), taken 1,741
 (+245), trade ratio 1.57× → **2.07×** (2.07× train, 2.06× holdout), cubes 0.37 → **2.10**
 (5.7×), train ranges 8000/13000 reached **3.06** and **3.19**. Adopted as default; overturns F8.
 
+### E47 — Snowball v4 (laser 82 m standoff, opening gear-first, flipping strafe, 3.2 s short kite)
+Tested on top of E46b (`snowball_v4`, default `False`): 82 m laser standoff, deferring
+bare-gun hunt until `w1` equipped (`t < 38 s`), flipping strafe, 1.05 s laser LOS hold,
+and shorter 3.2 s kite hold when `hp_frac > 0.72`.
+
+- **E47 (`snowball_v4=True`, train n=48):**
+  score **2.58** vs 2.81 E46b / 1.98 orig base (**−0.23** vs E46b, +0.60 ± 0.38 vs orig base),
+  kills **2.08** vs 2.10, death **68.8 s** vs 76.2 s (−7.4 s), dealt 3,781 vs 4,170 (−389),
+  taken 1,901 vs 2,013 (−112), dmg/kill **1,815** (all-time best conversion), cubes 1.90.
+  Per-range vs orig base: `8000:+1.06 / 11000:−0.81 / 13000:+1.56`.
+
+**Verdict:** Cutting kite duration to 3.2 s above 72 % HP and deferring early hunting cost
+−7.4 s of survival and −389 damage vs E46b. Default stays `snowball_v4: False`; E46b remains HEAD.
+
 ---
 
 ## Rejected

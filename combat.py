@@ -459,7 +459,10 @@ class Combat:
             # just because LOS briefly flickered off for a few ticks.
             if v2 and w1 and w1.get("kind") == "laser" and _num(w1.get("charge"), 0.0) > 0.0:
                 self.laser_no_tgt_s += self.dt
-                if self.laser_no_tgt_s <= 0.65:
+                full_c = max(1e-3, _num((w1.get("stats") or {}).get("charge"), 0.75))
+                hold_lim = (1.05 if (p.get("snowball_v4", False) and _num(w1.get("charge"), 0.0) >= full_c * 0.65)
+                            else 0.65)
+                if self.laser_no_tgt_s <= hold_lim:
                     return None, [False, True], False
             self.laser_no_tgt_s = 0.0
             return None, [False, False], False

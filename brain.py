@@ -647,9 +647,26 @@ class Brain:
                 if ed0 < 165.0 and self.world.shot_clear(my_muzzle, target_center(e, self.world.size_per_cube, self.world.height, p["aim_height_frac"])):
                     los_threats += 1
 
+        sb4 = bool(p.get("snowball_v4", False))
+        # In sb4, defer bare-gun hunt in the opening until we equip a secondary
+        # (unless an enemy is already wounded < 480 HP); still fire 100% if in LOS!
+        gear_defer = (
+            sb4 and w1 is None and t < p.get("sb4_gear_until", 38.0)
+            and not any((q.get("hp") or 1400.0) <= 480.0 for q in visible)
+        )
+        if gear_defer and goal_kind == "zone":
+            nc = obs["zone"]["next_center"]
+            nr = obs["zone"]["next_radius"]
+            a = ((self.seed % 360) * math.pi / 180.0) + t * 0.25
+            pr = min(cr * 0.62, max(60.0, nr * 0.72))
+            px_p = nc[0] + math.cos(a) * pr
+            py_p = nc[1] + math.sin(a) * pr
+            if math.hypot(px_p - ccx, py_p - ccy) < cr * 0.80:
+                goal, goal_kind = (px_p, py_p), "patrol"
+
         hunt_hp = (0.20 if v2 else p["hunt_hp"]) * (0.6 if self.press else 1.0)
         if (p["hunt_enabled"] and not emergency and not self.disengage
-                and not sb_econ_lock
+                and not sb_econ_lock and not gear_defer
                 and hp_frac > hunt_hp
                 and t < p["hunt_until"] and not (t < self.flee_until)):
             cand = [e for e in visible
@@ -699,9 +716,16 @@ class Brain:
                         duel_want = min(28.0, my_light_r * 0.65)
                     elif tgt_has_light:
                         duel_want = max(58.0, self.cfg_light_range + 14.0)
+                    elif sb4 and w1_kind == "laser":
+                        duel_want = float(p.get("sb4_laser_standoff", 82.0))
                     else:
                         duel_want = p["hunt_standoff"]
-                    if ed > duel_want:
+                    if sb4 and w1_kind == "laser":
+                        duel_los = self.world.shot_clear((x, y, my_muzzle_z), target_center(e, self.world.size_per_cube, self.world.height, p["aim_height_frac"]))
+                        if ed > duel_want or not duel_los:
+                            goal, goal_kind = (e["pos"][0], e["pos"][1]), "hunt"
+                            hunting = True
+                    elif ed > duel_want:
                         goal, goal_kind = (e["pos"][0], e["pos"][1]), "hunt"
                         hunting = True
                 elif ed > p["hunt_standoff"]:
@@ -815,7 +839,10 @@ class Brain:
                 vy = -sum(math.sin(d[0]) * (1.0 + min(d[2], 200.0) / 200.0) for d in recent_hits)
                 vd = math.hypot(vx, vy) or 1.0
                 self.kite_dir = (vx / vd, vy / vd)
-                self.kite_until = t + p["kite_hold_s"]
+                kh = p["kite_hold_s"]
+                if sb4 and hp_frac > 0.72 and sb_los_mechs <= 1:
+                    kh = 3.2
+                self.kite_until = t + kh
         if t < self.kite_until and self.kite_dir is not None:
             kx, ky = self.kite_dir
             if p["kite_cover"] and visible:
@@ -1256,7 +1283,17 @@ class Brain:
             e = min(visible, key=lambda q: math.hypot(q["pos"][0] - x, q["pos"][1] - y))
             ex, ey = e["pos"][0] - x, e["pos"][1] - y
             ed = max(0.01, math.hypot(ex, ey))
-            sx, sy = -ey / ed, ex / ed
+            if sb4:
+                if t >= self.strafe_flip_t:
+                    self.strafe_sign = -self.strafe_sign
+                    self.strafe_flip_t = t + self.rng.uniform(0.60, 0.95)
+                sx, sy = -ey / ed * self.strafe_sign, ex / ed * self.strafe_sign
+                if not self.world.walk_clear(x, y, x + sx * 5.0, y + sy * 5.0, z):
+                    self.strafe_sign = -self.strafe_sign
+                    sx, sy = -sx, -sy
+                    self.strafe_flip_t = t + 0.65
+            else:
+                sx, sy = -ey / ed, ex / ed
             gain = p["strafe_gain"] * (1.0 - mclose / sr)
             mx += sx * gain
             my += sy * gain

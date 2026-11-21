@@ -211,6 +211,10 @@ DEFAULT = {
     "snowball_v3": True,          # A/B E46b (laser>light): +0.84 ± 0.28 across 96 matches (2.81 train / 2.52 holdout, 2.10 kills)
     "sb3_laser_duck": True,       # pure 0.5s cover-duck on enemy laser telegraph (no fire suppression)
     "sb3_isolate": True,          # 1v1 corner angle isolation when 2+ enemies have LOS
+    # --- snowball v4 (E47): laser 82m standoff, opening gear-first, flipping strafe, dynamic kite, laser_charge weight
+    "snowball_v4": False,         # A/B test on top of snowball_v3
+    "sb4_laser_standoff": 82.0,   # ideal standoff when holding laser (hitscan range, zero enemy lightning)
+    "sb4_gear_until": 38.0,       # defer bare-gun hunt until w1 equipped (still fire 100% if in LOS!)
 }
 
 
