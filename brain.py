@@ -16,6 +16,7 @@ from econ import choose_take, held_kinds, loot_goal, pick_upgrade, seek_goal
 from intel import Intel
 from nav import Planner, safe_heading
 from params import load
+from roof import RoofModel
 from world import NullWorld, World
 from zone import ZoneModel, current_circle, outside_amount
 
@@ -47,6 +48,7 @@ class Brain:
             self.world = NullWorld(cfg)
         self.nav = Planner(self.world)
         self.zone = ZoneModel(cfg, self.seed)
+        self.roof = RoofModel(self.world, cfg)
         self.intel = Intel(hello, self.world, self.p)
         self.combat = Combat(self.world, self.p, cfg)
         self.memory_s = float(cfg.get("vision", {}).get("memory_s", 5.0))
@@ -98,6 +100,14 @@ class Brain:
         wcfg = cfg.get("weapons", {}) or {}
         self.cfg_light_range = float((wcfg.get("lightning") or {}).get("range", 45.0))
         self.cfg_gun_mag = int((wcfg.get("gun") or {}).get("mag", 12))
+        self.roof_spot = None
+        self.roof_climbing = False
+        self.roof_climb_t = 0.0
+        self.roof_healing = False
+        self.roof_hide_cache = None
+        self.roof_hide_t = -1e9
+        self.roof_peek_cache = None
+        self.roof_peek_t = -1e9
 
     # ------------------------------------------------------------------ state
     def _break_heading(self, x, y, z, visible, t):
@@ -516,6 +526,227 @@ class Brain:
             goal, goal_kind = (gx, gy), "kite"
             covered, roaming, kiting = False, False, True
 
+        # ---- rooftop warfare (E42) ---------------------------------------
+        roof_active = False
+        roof_hold_fire = False
+        roof_jump = False
+        roof_jet = False
+        roof_move = None
+        roof_boost = False
+        if p.get("roof_enabled", False) and self.roof.spots and not emergency:
+            nc = obs["zone"]["next_center"]
+            nr = obs["zone"]["next_radius"]
+            on_roof_now = self.roof.on_roof(x, y, z) and (me.get("grounded", True) or not self.roof_climbing)
+            if on_roof_now:
+                self.roof_climbing = False
+                self.roof_climb_t = 0.0
+                # Classify intruders on/near our elevation vs ground targets
+                intruders = [
+                    e for e in visible
+                    if (math.hypot(e["pos"][0] - x, e["pos"][1] - y) < 42.0 and abs(e["pos"][2] - z) < 7.0)
+                    or (math.hypot(e["pos"][0] - x, e["pos"][1] - y) < 22.0 and e["pos"][2] > z - 6.0)
+                ]
+                out_roof_zone = math.hypot(x - ccx, y - ccy) > cr * 0.85
+                abandon = (
+                    out_roof_zone
+                    or len(intruders) >= 2
+                    or (len(intruders) == 1 and hp_frac < 0.42
+                        and (intruders[0].get("hp") or 1400.0) > 450.0)
+                )
+                if abandon:
+                    for sp in self.roof.spots:
+                        if math.hypot(sp["x"] - x, sp["y"] - y) < 35.0:
+                            self.roof.blacklist_spot(sp["id"], t + 18.0)
+                    self.roof_spot = None
+                    self.roof_healing = False
+                    # Drop off toward next_center / away from intruders
+                    dx_drop = nc[0] - x
+                    dy_drop = nc[1] - y
+                    if intruders:
+                        dx_drop = sum(x - e["pos"][0] for e in intruders)
+                        dy_drop = sum(y - e["pos"][1] for e in intruders)
+                    dd = math.hypot(dx_drop, dy_drop) or 1.0
+                    goal, goal_kind = (x + dx_drop / dd * 60.0, y + dy_drop / dd * 60.0), "roof_drop"
+                    kiting = False
+                    self.kite_until = -1.0
+                else:
+                    roof_active = True
+                    kiting = False
+                    self.kite_until = -1.0
+                    # Heal state with hysteresis
+                    lethal_vis = any((e.get("hp") or 1400.0) <= 350.0 for e in visible)
+                    if (hp_frac < p["roof_heal_hp"] and not intruders
+                            and not lethal_vis and me.get("in_zone", True)):
+                        self.roof_healing = True
+                    elif hp_frac >= p["roof_heal_exit"] or intruders:
+                        self.roof_healing = False
+
+                    w0_cur = me["weapons"][0] if me.get("weapons") else None
+                    reloading = bool(w0_cur and w0_cur.get("reload", 0) > 0.35)
+                    laser_charging_us = False
+                    if p.get("roof_laser_duck", True):
+                        for e in visible:
+                            if e.get("charging"):
+                                b_to_us = math.atan2(y - e["pos"][1], x - e["pos"][0])
+                                if abs(wrap((e.get("aim") or [0.0, 0.0])[0] - b_to_us)) < 0.40:
+                                    laser_charging_us = True
+                                    break
+                    reload_duck = (p.get("roof_reload_duck", True) and reloading
+                                   and not intruders
+                                   and not (w1_kind == "lightning" and mclose < self.cfg_light_range)
+                                   and not (w1_kind == "laser" and (w1 or {}).get("charge", 0) > 0.4))
+                    want_hide = self.roof_healing or reload_duck or laser_charging_us
+
+                    if want_hide:
+                        if self.roof_healing:
+                            roof_hold_fire = True
+                        eyes = [
+                            (e["pos"][0], e["pos"][1],
+                             e["pos"][2] + self.world.eye_height
+                             * size_scale(e.get("cubes", 0), self.world.size_per_cube))
+                            for e in sorted(visible, key=lambda q: math.hypot(q["pos"][0] - x, q["pos"][1] - y))[:3]
+                        ]
+                        for b, bt, _ in self.damage_bearings[-2:]:
+                            tx, ty = x + math.cos(b) * 65.0, y + math.sin(b) * 65.0
+                            eyes.append((tx, ty, self.world.ground(tx, ty) + self.world.eye_height))
+                        if t - self.roof_hide_t > 0.4 or self.roof_hide_cache is None:
+                            self.roof_hide_cache = self.roof.find_roof_hide(x, y, z, eyes, (ccx, ccy), cr)
+                            self.roof_hide_t = t
+                        if self.roof_hide_cache is not None:
+                            hx, hy = self.roof_hide_cache
+                            hd = math.hypot(hx - x, hy - y)
+                            if hd > 1.5:
+                                roof_move = self.roof.stay_on_roof_dir(x, y, z, hx - x, hy - y)
+                                if (laser_charging_us or self.recent_damage > 0.2) and me.get("energy", 0) > 20:
+                                    roof_boost = True
+                            else:
+                                roof_move = (0.0, 0.0)
+                        else:
+                            # Step away from nearest threat while staying on roof
+                            if eyes:
+                                roof_move = self.roof.stay_on_roof_dir(x, y, z, x - eyes[0][0], y - eyes[0][1])
+                            else:
+                                roof_move = (0.0, 0.0)
+                        goal_kind = "roof_heal" if self.roof_healing else "roof_duck"
+                    elif intruders:
+                        # Defend roof 1v1 against single climber
+                        e = intruders[0]
+                        ex, ey = e["pos"][0] - x, e["pos"][1] - y
+                        ed = max(0.01, math.hypot(ex, ey))
+                        if t >= self.strafe_flip_t:
+                            self.strafe_sign = -self.strafe_sign
+                            self.strafe_flip_t = t + 0.75
+                        sx, sy = -ey / ed * self.strafe_sign, ex / ed * self.strafe_sign
+                        want_d = 24.0 if w1_kind == "lightning" else 32.0
+                        rad = clamp((ed - want_d) / 14.0, -1.0, 1.0)
+                        roof_move = self.roof.stay_on_roof_dir(x, y, z, ex / ed * rad + sx * 0.9, ey / ed * rad + sy * 0.9)
+                        goal_kind = "roof_def"
+                    else:
+                        # Check for loot right on our roof first
+                        roof_loot = None
+                        for c in obs.get("cubes", []):
+                            if abs(c["pos"][2] - z) < 3.0 and math.hypot(c["pos"][0] - x, c["pos"][1] - y) < 35.0:
+                                roof_loot = (c["pos"][0], c["pos"][1])
+                                break
+                        if roof_loot is None and w1 is None and p["take_pickups"]:
+                            for pk in obs.get("pickups", []):
+                                if abs(pk["pos"][2] - z) < 3.0 and math.hypot(pk["pos"][0] - x, pk["pos"][1] - y) < 40.0:
+                                    roof_loot = (pk["pos"][0], pk["pos"][1])
+                                    break
+                        if roof_loot is not None:
+                            roof_move = self.roof.stay_on_roof_dir(x, y, z, roof_loot[0] - x, roof_loot[1] - y)
+                            goal_kind = "roof_loot"
+                        elif visible:
+                            # Peek-and-shoot ground enemies from roof edge!
+                            tgt = min(
+                                visible,
+                                key=lambda q: (
+                                    (q.get("hp") or 1400.0) / max(1.0, q.get("max_hp") or 1400.0),
+                                    math.hypot(q["pos"][0] - x, q["pos"][1] - y),
+                                ),
+                            )
+                            tc_r = target_center(tgt, self.world.size_per_cube, self.world.height, p["aim_height_frac"])
+                            my_mz = (x, y, z + me.get("stats", {}).get("muzzle_height", self.world.muzzle_height))
+                            if self.world.shot_clear(my_mz, tc_r):
+                                # Already have clear high-ground LOS: flip-strafe along roof!
+                                ex, ey = tgt["pos"][0] - x, tgt["pos"][1] - y
+                                ed = max(0.01, math.hypot(ex, ey))
+                                if t >= self.strafe_flip_t:
+                                    self.strafe_sign = -self.strafe_sign
+                                    self.strafe_flip_t = t + 0.75
+                                sx, sy = -ey / ed * self.strafe_sign, ex / ed * self.strafe_sign
+                                if not self.roof.same_roof(x + sx * 4.0, y + sy * 4.0, z):
+                                    self.strafe_sign = -self.strafe_sign
+                                    sx, sy = -sx, -sy
+                                roof_move = self.roof.stay_on_roof_dir(x, y, z, sx, sy)
+                                goal_kind = "roof_fire"
+                            else:
+                                if t - self.roof_peek_t > 0.45 or self.roof_peek_cache is None:
+                                    self.roof_peek_cache = self.roof.find_roof_peek(x, y, z, tc_r, (ccx, ccy), cr)
+                                    self.roof_peek_t = t
+                                if self.roof_peek_cache is not None:
+                                    px_r, py_r = self.roof_peek_cache
+                                    if math.hypot(px_r - x, py_r - y) > 1.5:
+                                        roof_move = self.roof.stay_on_roof_dir(x, y, z, px_r - x, py_r - y)
+                                    else:
+                                        roof_move = (0.0, 0.0)
+                                else:
+                                    roof_move = self.roof.stay_on_roof_dir(x, y, z, tgt["pos"][0] - x, tgt["pos"][1] - y)
+                                goal_kind = "roof_peek"
+                        else:
+                            # No visible enemy: slowly drift toward edge facing next_center / sound
+                            ang_scan = self.sound_bearing if self.sound_bearing is not None else math.atan2(nc[1] - y, nc[0] - x)
+                            roof_move = self.roof.stay_on_roof_dir(x, y, z, math.cos(ang_scan), math.sin(ang_scan))
+                            goal_kind = "roof_hold"
+            else:
+                # Grounded: pick a climbable roof and approach/jet onto it!
+                self.roof_healing = False
+                if (self.roof_spot is None
+                        or self.roof.blacklist.get(self.roof_spot["id"], -1e9) > t
+                        or math.hypot(self.roof_spot["x"] - ccx, self.roof_spot["y"] - ccy) > cr * 0.84):
+                    self.roof_spot = self.roof.pick_roof(
+                        x, y, z, (ccx, ccy), cr, nc, nr, threats, t,
+                        max_dist=p["roof_max_seek"],
+                    )
+                    self.roof_climbing = False
+                    self.roof_climb_t = 0.0
+                if self.roof_spot is not None:
+                    sp = self.roof_spot
+                    dl = math.hypot(sp["lx"] - x, sp["ly"] - y)
+                    din = math.hypot(sp["in_x"] - x, sp["in_y"] - y)
+                    need_e = min(75.0, max(32.0, sp["dh"] * 1.9))
+                    if not self.roof_climbing and (dl < 9.0 or din < 13.0) and me.get("energy", 0) >= need_e:
+                        self.roof_climbing = True
+                        self.roof_climb_t = 0.0
+                    if self.roof_climbing:
+                        self.roof_climb_t += dt
+                        if (self.roof_climb_t > 4.5
+                                or (self.roof_climb_t > 0.6 and me.get("grounded") and me.get("energy", 0) < 12.0)):
+                            self.roof.blacklist_spot(sp["id"], t + 25.0)
+                            self.roof_spot = None
+                            self.roof_climbing = False
+                        else:
+                            roof_active = True
+                            kiting = False
+                            self.kite_until = -1.0
+                            dx_c, dy_c = sp["in_x"] - x, sp["in_y"] - y
+                            dc = math.hypot(dx_c, dy_c) or 1.0
+                            roof_move = (dx_c / dc, dy_c / dc)
+                            if me.get("grounded"):
+                                roof_jump = True
+                            if not me.get("grounded") and z < sp["z"] + 1.2 and me.get("energy", 0) > 2.0:
+                                roof_jet = True
+                            goal_kind = "roof_climb"
+                    else:
+                        # Walk to launch point (override early kite above 55% HP so we actually reach the roof!)
+                        if (not kiting or hp_frac > 0.55) and not (t < self.flee_until):
+                            goal, goal_kind = (sp["lx"], sp["ly"]), "roof"
+                            hunting = False
+                            kiting = False
+                            self.kite_until = -1.0
+                            if dl > 10.0 and me.get("energy", 0) > 45.0:
+                                roof_boost = True
+
         # a hide spot we are already standing on is not a goal: stop orbiting
         if covered:
             deadzone = 1.8
@@ -632,7 +863,11 @@ class Brain:
 
         # Always re-validate the *composed* vector: dodges and NPC repulsion
         # can rotate a clear steering heading into a wall.
-        (mx, my), reach = safe_heading(self.world, x, y, z, mx, my)
+        if roof_active and roof_move is not None:
+            mx, my = roof_move
+            reach = 8.0
+        else:
+            (mx, my), reach = safe_heading(self.world, x, y, z, mx, my)
         self.last_reach = reach
         if reach < 2.0 and self.escape_dir is not None:
             self.escape_until = -1.0
@@ -641,14 +876,17 @@ class Brain:
         speed_scale = 1.0
         quiet = (p["quiet_when_safe"] and not emergency and close > 70.0
                  and npc_close > 55.0 and t < p["late_survival_t"] and not escaping
-                 and not roaming and not kiting and not hunting)
+                 and not roaming and not kiting and not hunting and not roof_active
+                 and goal_kind != "roof")
         if quiet:
             speed_scale = min(1.0, p["quiet_speed"] / max(1.0, self.walk_speed))
         boost = bool(p["emergency_boost"] and (emergency or (hp_frac < 0.25 and mclose < 30.0)))
         # NPC drones move at 5 m/s; a quiet 4.85 m/s walk cannot break aggro.
         # Sprint out of their leash instead of eating 25 damage every second.
         npc_aggro = npc_close < 38.0 and (self.recent_damage > 0.05 or escaping)
-        if (escaping or npc_aggro or kiting or duel_boost) and me.get("energy", 0) > 25:
+        if (escaping or npc_aggro or kiting or duel_boost or roof_boost) and me.get("energy", 0) > 25:
+            boost = True
+        if roof_jet:
             boost = True
         if boost:
             speed_scale = 1.0
@@ -658,7 +896,9 @@ class Brain:
             boost = False
 
         # ---- firing gate -------------------------------------------------
-        if v2:
+        if roof_hold_fire:
+            allow_fire = False
+        elif v2:
             # In v2, pick_target enforces anti-aggro discipline; allow_fire only
             # suppresses fire when explicitly recovering/hiding or out of zone.
             allow_fire = bool(p["fire_enabled"] and not covered)
@@ -717,10 +957,13 @@ class Brain:
             allow_fire = True
 
         allow_charge = (p["fire_enabled"] and not emergency
-                        and hp_frac > p["hp_floor"])
+                        and hp_frac > p["hp_floor"] and not roof_hold_fire)
         aim_cmd, fire, fired = self.combat.act(obs, me, combat_targets, p,
                                                allow_fire=allow_fire,
                                                allow_charge=allow_charge)
+        if roof_hold_fire:
+            fire = [False, False]
+            fired = False
         if fired:
             self.last_fire_t = t
             self.fire_count += 1
@@ -748,8 +991,8 @@ class Brain:
             "aim": [round(aim_yaw, 4), round(clamp(aim_pitch, self.min_pitch, self.max_pitch), 4)],
             "fire": [bool(fire[0]), bool(fire[1])],
         }
-        # unstick / climb: jump if we have been wedged for a while
-        if self.stuck_t > 1.4 and me.get("grounded"):
+        # unstick / climb: jump if climbing a roof or wedged for a while
+        if roof_jump or (self.stuck_t > 1.4 and me.get("grounded")):
             act["jump"] = True
         # reload early when the magazine is dry, or proactively between fights in v2
         w0 = me["weapons"][0] if me["weapons"] else None

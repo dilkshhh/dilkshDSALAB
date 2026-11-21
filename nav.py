@@ -137,16 +137,29 @@ class Planner:
         look = min(18.0, max(6.0, d))
         if self.w.walk_clear(x, y, x + ux * look, y + uy * look, z, radius=radius):
             return (ux, uy)
-        # follow an A* waypoint if we have one
+        # follow an A* waypoint if we have one (advance from closest point along
+        # path so we never bounce backwards to an already-passed path[0]!)
         if path:
-            for wx, wy in path:
-                if math.hypot(wx - x, wy - y) > 5.0:
-                    vx, vy = wx - x, wy - y
-                    vd = math.hypot(vx, vy)
-                    if vd > 0.01 and self.w.walk_clear(x, y, x + vx / vd * min(look, vd),
-                                                       y + vy / vd * min(look, vd), z, radius=radius):
-                        return (vx / vd, vy / vd)
+            ci = min(range(len(path)), key=lambda i: math.hypot(path[i][0] - x, path[i][1] - y))
+            # Pick the furthest visible waypoint slightly ahead, else next waypoint
+            chosen = None
+            hi = min(len(path) - 1, ci + 4)
+            for idx in range(hi, ci, -1):
+                wx, wy = path[idx]
+                vx, vy = wx - x, wy - y
+                vd = math.hypot(vx, vy)
+                if vd > 2.5 and self.w.walk_clear(x, y, x + vx / vd * min(look, vd),
+                                                  y + vy / vd * min(look, vd), z, radius=radius):
+                    chosen = (vx / vd, vy / vd)
                     break
+            if chosen is not None:
+                return chosen
+            nxt = min(len(path) - 1, ci + 1)
+            wx, wy = path[nxt]
+            vx, vy = wx - x, wy - y
+            vd = math.hypot(vx, vy)
+            if vd > 0.5:
+                ux, uy = vx / vd, vy / vd
         # heading fan: prefer the closest heading that is genuinely walkable
         best = None
         best_score = -1e18

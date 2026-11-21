@@ -296,6 +296,25 @@ and anti-aggro poke range limit.
 of survival for no net score gain. Effective HP (~1,700) and cubes (~0.5) remain the
 binding ceiling. Kept behind `combat_v2: False` for reuse with cover/rooftop mechanisms.
 
+### E42 — Rooftop warfare (`roof.py`: jump+jet climbing, ledge-peeking, roof heal/reload/laser duck)
+Precomputed 603 flat climbable roof spots (7.5–26 m tall) with ground launch points
+(90 ms at hello). Climb with jump+jet, step back behind the roof edge during gun
+reload / enemy laser charge / low-HP hard-hold-fire regen (`roof_heal_hp=0.62`),
+and peek edges to shoot ground enemies. Also fixed an A* waypoint-index bug in
+`nav.steer` where already-passed `path[0]` pulled the mech backwards (nav fix alone:
+1.79 vs 1.98, −0.19 ± 0.25, noise).
+
+- **E42 (`roof_enabled=True`, train n=48):**
+  score **1.75** vs 1.98 (**−0.23 ± 0.29**), kills **0.83** vs 1.25 (−0.42 ± 0.22),
+  death **84.8 s** vs 74.7 s (**+10.1 s**), dealt 2,088 vs 2,896 (−808), taken 1,843 (+106),
+  acc 74.4 %. Per-range: `8000:−0.44 / 11000:−0.50 / 13000:+0.25`.
+  Notable mechanism failure: **mortar deaths jumped 1 → 8** (mortar damage taken 28 → 230, 8×)
+  because a slow mech on a flat roof is an easy mortar target whose shells arc over roof edges,
+  and hiding back from the ledge cut damage dealt by −808.
+
+**Verdict:** Rooftop camping reproduces the exact warden/D-09 trade (+10 s life, −0.42 kills,
+−0.23 score) and gets punished 8× harder by mortars. Default stays `roof_enabled: False`.
+
 ---
 
 ## Rejected

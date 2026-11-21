@@ -179,6 +179,13 @@ DEFAULT = {
     "v2_laser_poke_r": 150.0,     # ...or this with laser
     "v2_flip_min_s": 0.65,        # strafe direction flip interval min
     "v2_flip_max_s": 1.05,        # strafe direction flip interval max
+    # --- rooftop warfare (E42) ------------------------------------------
+    "roof_enabled": False,        # climb buildings with jump+jet, ledge-peek, roof heal cycle
+    "roof_heal_hp": 0.62,         # step back & hard-hold-fire to regen below this HP
+    "roof_heal_exit": 0.90,       # resume ledge-peeking above this HP
+    "roof_reload_duck": True,     # step back behind roof edge during gun reload
+    "roof_laser_duck": True,      # step back behind roof edge when enemy charges laser
+    "roof_max_seek": 220.0,       # max distance to seek a climbable roof
 }
 
 
