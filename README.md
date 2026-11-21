@@ -114,7 +114,6 @@ pairs from another. The first result was a false positive.
 | Zone-edge goal (`goal_offset` 0.78) | +0.19 / +0.67 / −0.10 across ranges 8000/11000/13000 | inconclusive (+0.25 ± 0.23 pooled); unchanged |
 
 ### Decision-time budget
-
 Over 387 sampled decisions the bot had a shootable target **21 %** of the time,
 was alone **35 %**, and had enemies visible but terrain-blocked **44 %**. The
 fire gate was never the binding constraint: the arbiter passed literal
@@ -123,3 +122,30 @@ gate experiment measured flat. Damage is limited by target availability, not
 permission to shoot.
 
 
+
+### Parameter sweep (14 dimensions, 14 random configs)
+
+Harness: `sweep.py` (dev-only, uncommitted). Every config is scored on the same
+three fixed ranges (8000/11000/13000, 16 seeds each) against a **cached
+per-seed baseline**, so a candidate costs one arm (~82 s). Results are reported
+as per-range deltas, and a holdout of untouched ranges (14000/15000/16000)
+confirms anything that survives.
+
+Baselines: train **1.96 / 71 s / 1.27 kills**; holdout **1.65 / 66.5 s / 1.17**.
+
+Outcome: **no config was reliably better.** Per-range deltas swing by up to 1.2
+score *within a single config* (e.g. `+0.31/−1.00/+0.12`), so pooled means are
+noise. Only one config was positive on all three training ranges, and it had
+negative kills — self-contradictory.
+
+The best candidate by mechanism (kills, the thing that actually improves place)
+was aggression 0.8 / cover_bias 0.25 / standoff 65 / hunt_hp 0.30 / quiet off:
+
+| Set | Pooled score | Kills | Per-range |
+| --- | --- | --- | --- |
+| train | +0.33 | +0.38 | +0.69 / −0.25 / +0.56 |
+| holdout | +0.15 | +0.06 | +0.38 / +0.06 / +0.00 |
+
+5 of 6 ranges non-negative, pooled ≈ +0.24 — real but modest, and **not clearly
+better than the hunter-v2 build already submitted**. Conclusion: this parameter
+space is close to exhausted; remaining gains are structural, not tunable.
