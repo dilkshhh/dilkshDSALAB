@@ -31,10 +31,17 @@ def size_scale(cubes, size_per_cube=0.05):
     return 1.0 + size_per_cube * float(cubes or 0)
 
 
-def target_center(actor, size_per_cube=0.05, height=9.0):
+def target_center(actor, size_per_cube=0.05, height=9.0, frac=0.5):
+    """Aim point on the target body.
+
+    The body spans the full mech height, so any frac in roughly 0.3-0.85 is a
+    valid hit.  Aiming high clears intervening terrain: a mid-body aim point
+    forces the projectile line low, and measured line-of-sight rejections were
+    the single largest reason we had no target at all.
+    """
     s = size_scale(actor.get("cubes", 0), size_per_cube)
     p = actor["pos"]
-    return (p[0], p[1], p[2] + 0.5 * height * s)
+    return (p[0], p[1], p[2] + frac * height * s)
 
 
 def muzzle(me):
@@ -177,7 +184,17 @@ class Combat:
                    / max(1.0, _num(match.get("tick_hz"), 20.0)))
         self.release_laser = False
         # target hysteresis: see pick_target
+        self.aim_frac = _num(self.p.get("aim_height_frac"), 0.5)
+        self.has_mortar = False
+        self.indirect_ok = bool(self.p.get("mortar_indirect", True))
         self.focus_id = None
+        self.last_had_target = False
+        self.last_gate = False
+        self.dbg_range_skip = self.dbg_los_skip = self.dbg_ok = 0
+        self.gun_shots = 0
+        self.laser_shots = 0
+        self.mortar_shots = 0
+        self.lightning_shots = 0
         self.focus_enabled = bool(self.p.get("focus_fire", True))
         self.focus_switch_margin = _num(self.p.get("focus_switch_margin"), 55.0)
 
@@ -188,7 +205,7 @@ class Combat:
                 _num(st.get("max_pitch"), self.max_pitch))
 
     def _center(self, actor):
-        return target_center(actor, self.size_per_cube, self.height)
+        return target_center(actor, self.size_per_cube, self.height, self.aim_frac)
 
     def _radius(self, actor):
         return self.radius * size_scale(actor.get("cubes", 0), self.size_per_cube)
@@ -211,15 +228,24 @@ class Combat:
         focus = self.focus_id
         focus_score = None
         focus_target = None
+        n_range = n_los = n_ok = 0
         for e in enemies:
             if e.get("pos") is None:
                 continue
             d = math.hypot(e["pos"][0] - px, e["pos"][1] - py)
             if d > max_range:
+                n_range += 1
                 continue
             tc = self._center(e)
             if not self.w.shot_clear(src, tc):
-                continue
+                # A mortar arcs over terrain, so a target we cannot shoot
+                # directly is still a target.  Requiring direct line of sight
+                # here threw away the 44% of decisions where the squad was
+                # visible but blocked, which is exactly the mortar's job.
+                if not (self.has_mortar and self.indirect_ok and 30.0 < d < 210.0):
+                    n_los += 1
+                    continue
+            n_ok += 1
             hp = e.get("hp")
             hp_conf = e.get("hp_conf", 1.0 if hp is not None else 0.0)
             score = d
@@ -235,12 +261,13 @@ class Combat:
                 and best_score > focus_score - self.focus_switch_margin):
             best = focus_target
         self.focus_id = best.get("id") if best is not None else None
+        self.dbg_range_skip, self.dbg_los_skip, self.dbg_ok = n_range, n_los, n_ok
         return best
 
     # ------------------------------------------------------------------ dispatch
-    def act(self, obs, me, enemies, params, allow_fire=True):
+    def act(self, obs, me, enemies, params, allow_fire=True, allow_charge=None):
         if params.get("aim_arbiter", False):
-            return self._act_arbiter(obs, me, enemies, params, allow_fire)
+            return self._act_arbiter(obs, me, enemies, params, allow_fire, allow_charge)
         return self._act_legacy(obs, me, enemies, params, allow_fire)
 
     # ------------------------------------------------------------------ legacy
@@ -354,12 +381,15 @@ class Combat:
         return aim_cmd, fire, fired
 
     # ------------------------------------------------------------------ arbiter
-    def _act_arbiter(self, obs, me, enemies, params, allow_fire=True):
+    def _act_arbiter(self, obs, me, enemies, params, allow_fire=True,
+                     allow_charge=None):
         """One final torso aim; each slot fires only if compatible with it."""
         p = params
         weapons = me["weapons"]
         src = muzzle(me)
+        self.has_mortar = any(w and w.get("kind") == "mortar" for w in weapons)
         target = self.pick_target(me, enemies, p["fire_max_range"])
+        self.last_had_target = target is not None
         if target is None:
             return None, [False, False], False
 
@@ -369,6 +399,16 @@ class Combat:
         min_pitch, max_pitch = self._pitch_limits(me)
         dt = self.dt
         fire_gate = bool(allow_fire and p["fire_enabled"])
+        # Charging the laser is not the same decision as firing it: a charge
+        # takes 0.75 s, and gating it behind permission-to-fire meant the
+        # 315-damage weapon almost never charged (fire_gate is true in ~5% of
+        # decisions).  Charge whenever we expect to shoot; release still needs
+        # the gate and a good alignment.
+        charge_ok = bool((allow_fire if allow_charge is None else allow_charge)
+                         and p["fire_enabled"])
+        if not p.get("laser_precharge", True):
+            charge_ok = fire_gate
+        self.last_gate = fire_gate
         candidates = []
 
         def add(slot, kind, aim, point, tol, utility, fire, fired, hold=False, cone=None):
@@ -422,7 +462,9 @@ class Combat:
                     add(1, "laser", (yaw, pitch), pt, tr * 1.15,
                         utility if gate else utility * 0.5,
                         not gate, gate, hold=not gate)
-                elif charge < full and w1.get("cooldown", 0) <= 0.05 and fire_gate:
+                elif (charge < full and w1.get("cooldown", 0) <= 0.05
+                        and charge_ok and err < tr * 3.0
+                        and math.dist(src, pt) < _num(st.get("range"), 280.0)):
                     add(1, "laser", (yaw, pitch), pt, tr * 1.15,
                         dmg * 0.25 * (charge / full), True, False, hold=True)
             elif kind == "lightning":
@@ -513,6 +555,10 @@ class Combat:
         if any(c["kind"] == "laser" and c["hold"] for c in candidates):
             fire[1] = True
 
+        if chosen["kind"] == "laser" and chosen["fired"] and not chosen["hold"]:
+            self.laser_shots += 1
+        elif chosen["kind"] == "gun" and chosen["fired"]:
+            self.gun_shots += 1
         fire[chosen["slot"]] = bool(chosen["fire"])
         if chosen["fired"] and (chosen["fire"] or (chosen["kind"] == "laser" and not chosen["hold"])):
             fired = True

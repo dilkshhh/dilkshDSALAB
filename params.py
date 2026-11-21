@@ -52,10 +52,13 @@ DEFAULT = {
     "gun_min_hit": 1.25,          # fire only if predicted miss < this * target radius
     # Damage split across many targets produces damage but no kills, and place
     # only improves when a bot actually dies.
+    "aim_height_frac": 0.5,       # aim point on the target body (0.5 = mid-body)
     "focus_fire": True,           # keep shooting the same target until it dies
     "focus_switch_margin": 55.0,  # score advantage required to switch target
     "laser_min_charge": 0.45,
+    "laser_precharge": False,     # A/B: -0.16 score, so off
     "mortar_self_safe": 11.0,     # never lob a shell whose impact is closer than this
+    "mortar_indirect": False,     # A/B: -0.28 score, so off
     "lightning_energy_floor": 12.0,
     # --- economy -------------------------------------------------------
     "take_pickups": True,

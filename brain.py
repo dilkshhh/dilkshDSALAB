@@ -539,7 +539,11 @@ class Brain:
         if farm:
             allow_fire = True
 
-        aim_cmd, fire, fired = self.combat.act(obs, me, combat_targets, p, allow_fire=allow_fire)
+        allow_charge = (p["fire_enabled"] and not emergency
+                        and hp_frac > p["hp_floor"])
+        aim_cmd, fire, fired = self.combat.act(obs, me, combat_targets, p,
+                                               allow_fire=allow_fire,
+                                               allow_charge=allow_charge)
         if fired:
             self.last_fire_t = t
             self.fire_count += 1
@@ -588,9 +592,13 @@ class Brain:
             import sys
             print("DBG t=%.1f pos=(%.0f,%.0f) goal=(%.0f,%.0f) kind=%s mv=(%.2f,%.2f) "
                   "reach=%.0f stuck=%.2f esc=%s npc=%.0f threats=%d vis=%d mclose=%.0f "
-                  "hp=%.0f fire=%s kit=%s cov=%s roam=%s adapt=%.2f"
+                  "hp=%.0f fire=%s kit=%s cov=%s roam=%s adapt=%.2f tgt=%s gate=%s rng=%d los=%d ok=%d g=%d l=%d"
                   % (t, x, y, goal[0], goal[1], goal_kind, mx, my, reach, self.stuck_t,
                      escaping, npc_close, len(threats), len(visible), mclose,
-                     me["hp"], str(fire), kiting, covered, roaming, adapt),
+                     me["hp"], str(fire), kiting, covered, roaming, adapt,
+                     self.combat.last_had_target, self.combat.last_gate,
+                     self.combat.dbg_range_skip, self.combat.dbg_los_skip,
+                     self.combat.dbg_ok,
+                     self.combat.gun_shots, self.combat.laser_shots),
                   file=sys.stderr, flush=True)
         return act
