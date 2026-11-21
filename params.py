@@ -194,6 +194,14 @@ DEFAULT = {
     "snowball_crate_farm": True,  # break nearby crates (300 HP -> 1 cube + 50% weapon) when safe
     "snowball_pickup_r": 135.0,   # seek remembered/visible weapons within this range
     "snowball_cube_r": 50.0,      # collect visible cubes within this range
+    # --- tactical cover + laser-duck + reload-duck + regen hold-fire (E44) -
+    "tactical_cover_v1": False,   # laser-charge cover duck, reload cover duck, low-HP regen hold-fire
+    "tc_laser_duck": True,        # boost behind cover when enemy charges laser aimed at us
+    "tc_reload_duck": True,       # duck behind nearby cover during 2.4s gun reload
+    "tc_heal_hold": True,         # hard-hold-fire to regen when hurt & out of close LOS
+    "tc_heal_hp": 0.52,           # enter low-HP regen protection below this fraction
+    "tc_heal_exit": 0.84,         # resume poking above this fraction
+    "tc_heal_close_r": 52.0,      # always fight back if an enemy has LOS inside this range
 }
 
 

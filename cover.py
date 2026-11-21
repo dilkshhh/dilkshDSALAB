@@ -61,3 +61,43 @@ def find_cover(world, x, y, z, threat_eyes, max_r=18.0, step=2.0,
         if best_at_r is not None:
             return best_at_r          # nearest radius that offers cover
     return best
+
+
+def find_quick_cover(world, x, y, z, threat_eyes, max_r=13.0, step=3.0,
+                     zone_center=None, zone_radius=0.0):
+    """Fast (<0.5 ms) nearby solid-cover search for laser-duck and reload-cover."""
+    if not threat_eyes:
+        return None
+    eyes = threat_eyes[:2]
+    body_h = 0.5 * world.height
+    for r in (4.5, 8.5, 13.0):
+        if r > max_r:
+            break
+        best_at_r = None
+        best_sc = -1e18
+        for k in range(10):
+            a = k * TAU / 10.0
+            px, py = x + math.cos(a) * r, y + math.sin(a) * r
+            pz = world.ground(px, py)
+            if pz > z + world.step_up or pz < z - 5.0:
+                continue
+            if zone_center is not None and zone_radius > 0.0:
+                if math.hypot(px - zone_center[0], py - zone_center[1]) > zone_radius * 0.90:
+                    continue
+            if not world.walk_clear(x, y, px, py, z):
+                continue
+            bz = pz + body_h
+            hidden = True
+            for ex, ey, ez in eyes:
+                if world.shot_clear((ex, ey, ez), (px, py, bz), step=step):
+                    hidden = False
+                    break
+            if not hidden:
+                continue
+            away = min(math.hypot(px - ex, py - ey) for ex, ey, _ in eyes)
+            sc = away * 0.05 - r * 0.03
+            if sc > best_sc:
+                best_sc, best_at_r = sc, (px, py)
+        if best_at_r is not None:
+            return best_at_r
+    return None

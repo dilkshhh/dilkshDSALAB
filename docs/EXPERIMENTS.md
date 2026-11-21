@@ -341,6 +341,22 @@ trade ratio 1.57× → **1.78×**, dmg/kill 2,200 → **1,957**, cubes 0.37 → 
 **First policy in the entire project to break the 2.10 local ceiling on both train and holdout.**
 Adopted as default.
 
+### E44 — Tactical ground cover (laser-duck, reload-duck, low-HP regen hold-fire)
+Built on top of E43 (`snowball_v1`), behind `tactical_cover_v1` (default `False`): fast
+`<0.5 ms` nearby cover search (`cover.find_quick_cover`) triggered on enemy laser
+charge, gun reload, and low-HP (`< 0.52`) hard-hold-fire regen when no enemy had LOS
+within 52 m. Also fixed a zone-death bug where NPC `flee_until` cleared `emergency=True`.
+
+- **E44 (`tactical_cover_v1=True` on E43, train n=48):**
+  score **2.23** vs 2.46 E43 / 1.98 orig base (**−0.23** vs E43, +0.25 ± 0.41 vs orig base),
+  kills **1.35** vs 1.67 E43 (−0.32), death **76.7 s** vs 75.2 s (+1.5 s),
+  dealt **2,889** vs 3,394 (−505), taken **1,914** vs 1,835 (+79 EHP healed), cubes 1.03.
+  Per-range vs orig base: `8000:+0.56 / 11000:−0.44 / 13000:+0.62`.
+
+**Verdict:** Confirms D-09 a fourth time — holding fire below 52 % HP bought only +79 HP
+of regen (+1.5 s) while costing −505 damage and −0.32 kills vs E43. Kept behind
+`tactical_cover_v1: False`; retained the `emergency` zone-safety fix.
+
 ---
 
 ## Rejected

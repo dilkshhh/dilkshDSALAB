@@ -11,7 +11,7 @@ import os
 import random
 
 from combat import Combat, clamp, wrap, size_scale, target_center
-from cover import find_cover
+from cover import find_cover, find_quick_cover
 from econ import choose_take, held_kinds, loot_goal, pick_upgrade, seek_goal
 from intel import Intel
 from nav import Planner, safe_heading
@@ -110,6 +110,9 @@ class Brain:
         self.roof_peek_t = -1e9
         self.known_pickups = {}   # pid -> (kind, [x, y, z], t)
         self.kill_loots = []      # [(x, y, z, t), ...]
+        self.tc_healing = False
+        self.tc_cov_cache = None
+        self.tc_cov_t = -1e9
 
     # ------------------------------------------------------------------ state
     def _break_heading(self, x, y, z, visible, t):
@@ -390,7 +393,7 @@ class Brain:
             self.flee_until = t + p["npc_break_hold_s"]
         if sb_farm_npc is not None:
             self.flee_until = -1.0
-        if t < self.flee_until and self.flee_dir is not None:
+        if t < self.flee_until and self.flee_dir is not None and not emergency:
             fx, fy = self.flee_dir
             gx, gy = x + fx * 120.0, y + fy * 120.0
             dd = math.hypot(gx - ccx, gy - ccy)
@@ -398,7 +401,7 @@ class Brain:
             if dd > lim and dd > 0.01:
                 gx = ccx + (gx - ccx) / dd * lim
                 gy = ccy + (gy - ccy) / dd * lim
-            goal, emergency = (gx, gy), False
+            goal = (gx, gy)
 
         # ---- early roam / economy ----------------------------------------
         roaming = (t < p["roam_until"] and not emergency
@@ -906,6 +909,96 @@ class Brain:
                             if dl > 10.0 and me.get("energy", 0) > 45.0:
                                 roof_boost = True
 
+        # ---- tactical ground cover: laser-duck, reload-duck, regen hold-fire (E44)
+        tc_hold_fire = False
+        tc_boost = False
+        if p.get("tactical_cover_v1", False) and not emergency and not roof_active:
+            my_body = (x, y, z + 0.5 * self.world.height)
+            # 1) Enemy laser telegraph cover-duck (42% of holdout deaths!)
+            laser_eyes = []
+            if p.get("tc_laser_duck", True) and visible:
+                for e in visible:
+                    if not e.get("charging"):
+                        continue
+                    ed_l = math.hypot(e["pos"][0] - x, e["pos"][1] - y)
+                    if ed_l > 260.0:
+                        continue
+                    # If we hold lightning and are inside range, zap to short them instead!
+                    if w1_kind == "lightning" and ed_l < my_light_r - 1.0 and me.get("energy", 0) > 10:
+                        continue
+                    b_to_us = math.atan2(y - e["pos"][1], x - e["pos"][0])
+                    if abs(wrap((e.get("aim") or [0.0, 0.0])[0] - b_to_us)) < 0.38:
+                        ez_l = e["pos"][2] + self.world.eye_height * size_scale(e.get("cubes", 0), self.world.size_per_cube)
+                        if self.world.shot_clear((e["pos"][0], e["pos"][1], ez_l), my_body, step=3.0):
+                            laser_eyes.append((e["pos"][0], e["pos"][1], ez_l))
+            if laser_eyes:
+                cov = find_quick_cover(self.world, x, y, z, laser_eyes, max_r=13.0, step=3.0,
+                                       zone_center=(ccx, ccy), zone_radius=cr)
+                if cov is not None:
+                    goal, goal_kind = cov, "tc_laser"
+                    covered = True
+                    tc_boost = True
+                else:
+                    # No wall within 13m: boost perpendicular to break track
+                    tc_boost = True
+            else:
+                # 2) Low-HP regen protection (hard-hold-fire ONLY when safe from close LOS!)
+                lethal_los = any(
+                    (e.get("hp") or 1400.0) <= 400.0
+                    and math.hypot(e["pos"][0] - x, e["pos"][1] - y) < 150.0
+                    and self.world.shot_clear((x, y, my_muzzle_z), target_center(e, self.world.size_per_cube, self.world.height, p["aim_height_frac"]))
+                    for e in visible
+                )
+                if p.get("tc_heal_hold", True):
+                    if hp_frac < p["tc_heal_hp"] and me.get("in_zone", True) and not lethal_los:
+                        self.tc_healing = True
+                    elif hp_frac >= p["tc_heal_exit"] or not me.get("in_zone", True):
+                        self.tc_healing = False
+                    if self.tc_healing and not lethal_los:
+                        close_los = any(
+                            math.hypot(e["pos"][0] - x, e["pos"][1] - y) < p["tc_heal_close_r"]
+                            and self.world.shot_clear((x, y, my_muzzle_z), target_center(e, self.world.size_per_cube, self.world.height, p["aim_height_frac"]))
+                            for e in visible
+                        )
+                        if not close_los:
+                            tc_hold_fire = True
+                            # If someone at medium/long range still has LOS, duck behind a nearby wall!
+                            if sb_los_mechs > 0 and not kiting:
+                                eyes = [
+                                    (e["pos"][0], e["pos"][1],
+                                     e["pos"][2] + self.world.eye_height * size_scale(e.get("cubes", 0), self.world.size_per_cube))
+                                    for e in sorted(visible, key=lambda q: math.hypot(q["pos"][0] - x, q["pos"][1] - y))[:2]
+                                ]
+                                if t - self.tc_cov_t > 0.45 or self.tc_cov_cache is None:
+                                    self.tc_cov_cache = find_quick_cover(
+                                        self.world, x, y, z, eyes, max_r=14.0, step=3.0,
+                                        zone_center=(ccx, ccy), zone_radius=cr)
+                                    self.tc_cov_t = t
+                                if self.tc_cov_cache is not None:
+                                    goal, goal_kind = self.tc_cov_cache, "tc_heal"
+                                    covered = True
+
+                # 3) Gun-reload cover duck (step behind nearby wall during 2.4s reload!)
+                w0_cur = me["weapons"][0] if me.get("weapons") else None
+                reloading = bool(w0_cur and w0_cur.get("reload", 0) > 0.45)
+                if (p.get("tc_reload_duck", True) and reloading and not covered
+                        and not kiting and not sb_econ_lock and sb_los_mechs > 0
+                        and not (w1_kind == "lightning" and mclose < my_light_r)
+                        and not (w1_kind == "laser" and (w1 or {}).get("charge", 0) > 0.45)):
+                    eyes = [
+                        (e["pos"][0], e["pos"][1],
+                         e["pos"][2] + self.world.eye_height * size_scale(e.get("cubes", 0), self.world.size_per_cube))
+                        for e in sorted(visible, key=lambda q: math.hypot(q["pos"][0] - x, q["pos"][1] - y))[:2]
+                    ]
+                    if t - self.tc_cov_t > 0.45 or self.tc_cov_cache is None:
+                        self.tc_cov_cache = find_quick_cover(
+                            self.world, x, y, z, eyes, max_r=11.0, step=3.0,
+                            zone_center=(ccx, ccy), zone_radius=cr)
+                        self.tc_cov_t = t
+                    if self.tc_cov_cache is not None:
+                        goal, goal_kind = self.tc_cov_cache, "tc_reload"
+                        covered = True
+
         # a hide spot we are already standing on is not a goal: stop orbiting
         if covered:
             deadzone = 1.8
@@ -1043,22 +1136,22 @@ class Brain:
         # NPC drones move at 5 m/s; a quiet 4.85 m/s walk cannot break aggro.
         # Sprint out of their leash instead of eating 25 damage every second.
         npc_aggro = sb_farm_npc is None and npc_close < 38.0 and (self.recent_damage > 0.05 or escaping)
-        if (escaping or npc_aggro or kiting or duel_boost or roof_boost or sb_boost) and me.get("energy", 0) > 25:
+        if (escaping or npc_aggro or kiting or duel_boost or roof_boost or sb_boost or tc_boost) and me.get("energy", 0) > 25:
             boost = True
         if roof_jet:
             boost = True
         if boost:
             speed_scale = 1.0
-        if covered and p["cover_quiet"] and not escaping:
+        if covered and p["cover_quiet"] and not escaping and not tc_boost and goal_kind not in ("tc_laser", "tc_reload"):
             # footsteps are silent below step_speed, and boost is audible at 90 m
             speed_scale = min(speed_scale, p["quiet_speed"] / max(1.0, self.walk_speed))
             boost = False
 
         # ---- firing gate -------------------------------------------------
-        if roof_hold_fire:
+        if roof_hold_fire or tc_hold_fire:
             allow_fire = False
         elif wv2:
-            allow_fire = bool(p["fire_enabled"] and not covered)
+            allow_fire = bool(p["fire_enabled"] and (not covered or goal_kind in ("tc_laser", "tc_reload")))
         else:
             cornered = mclose < 32.0 and hp_frac > p["hp_floor"]
             engage_dist = p["engage_range"] * p["aggression"] / adapt
@@ -1082,7 +1175,7 @@ class Brain:
         # crate / NPC farming
         combat_targets = list(visible)
         farm = False
-        if sb and not emergency and not roof_hold_fire and sb_los_mechs == 0:
+        if sb and not emergency and not roof_hold_fire and not tc_hold_fire and sb_los_mechs == 0:
             if sb_farm_npc is not None:
                 combat_targets.append({
                     "id": sb_farm_npc["id"], "kind": "mech",
@@ -1132,11 +1225,11 @@ class Brain:
             allow_fire = True
 
         allow_charge = (p["fire_enabled"] and not emergency
-                        and hp_frac > p["hp_floor"] and not roof_hold_fire)
+                        and hp_frac > p["hp_floor"] and not roof_hold_fire and not tc_hold_fire)
         aim_cmd, fire, fired = self.combat.act(obs, me, combat_targets, p,
                                                allow_fire=allow_fire,
                                                allow_charge=allow_charge)
-        if roof_hold_fire:
+        if roof_hold_fire or tc_hold_fire:
             fire = [False, False]
             fired = False
         if fired:
