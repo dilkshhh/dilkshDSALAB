@@ -11,7 +11,7 @@ import os
 import random
 
 from combat import Combat, clamp, wrap, size_scale, target_center
-from cover import find_cover, find_quick_cover
+from cover import find_cover, find_quick_cover, find_isolate_spot
 from econ import choose_take, held_kinds, loot_goal, pick_upgrade, seek_goal
 from intel import Intel
 from nav import Planner, safe_heading
@@ -113,9 +113,14 @@ class Brain:
         self.tc_healing = False
         self.tc_cov_cache = None
         self.tc_cov_t = -1e9
+        self.econ_bl = {}         # obj_key -> expire_t (prevents unreachable-cube freeze!)
+        self.econ_track_key = None
+        self.econ_track_t = 0.0
+        self.iso_cache = None
+        self.iso_t = -1e9
 
     # ------------------------------------------------------------------ state
-    def _break_heading(self, x, y, z, visible, t):
+    def _break_heading(self, x, y, z, visible, t, all_threats=None, cc=None, cr=0.0):
         """Pick the escape heading that hides us from the nearest shooters.
 
         Distance alone does not stop a squad with shared vision; terrain does.
@@ -126,6 +131,7 @@ class Brain:
         if (self._break_dir is not None
                 and t - self._break_t < self.p["kite_cover_cache_s"]):
             return self._break_dir
+        sb3 = bool(self.p.get("snowball_v3", False))
         eyes = sorted(((e["pos"][0], e["pos"][1],
                         e["pos"][2] + self.world.eye_height
                         * size_scale(e.get("cubes", 0), self.world.size_per_cube))
@@ -134,20 +140,32 @@ class Brain:
         probe = self.p["kite_cover_probe"]
         body = 0.5 * self.world.height
         best, best_score = None, -1e18
+        w = self.world
         for k in range(12):
             a = k * TAU / 12.0
             cx, cy = math.cos(a), math.sin(a)
             if self.nav.reach(x, y, z, cx, cy) < 6.0:
                 continue
             px, py = x + cx * probe, y + cy * probe
-            pz = self.world.ground(px, py)
+            if sb3:
+                if (px < w.minx + 25 or px > w.maxx - 25
+                        or py < w.miny + 25 or py > w.maxy - 25):
+                    continue
+                if cc is not None and cr > 0.0 and math.hypot(px - cc[0], py - cc[1]) > cr * 0.86:
+                    continue
+            pz = w.ground(px, py)
             hidden = 0
             for ex, ey, ez in eyes:
-                if not self.world.shot_clear((ex, ey, ez), (px, py, pz + body)):
+                if not w.shot_clear((ex, ey, ez), (px, py, pz + body)):
                     hidden += 1
             gain = min((math.hypot(px - ex, py - ey) for ex, ey, _ in eyes),
                        default=0.0)
             score = hidden * 60.0 + gain * 0.35
+            if sb3 and all_threats:
+                # Don't kite straight into a 3rd/4th idle house bot and wake it up!
+                near_any = min((math.hypot(px - q[0], py - q[1]) for q in all_threats), default=120.0)
+                if near_any < 48.0:
+                    score -= (48.0 - near_any) * 1.8
             if score > best_score:
                 best_score, best = score, (cx, cy)
         self._break_dir, self._break_t = best, t
@@ -410,12 +428,18 @@ class Brain:
         sb_econ_lock = False
         sb_boost = False
         sb_farm_crate = None
+        sb3 = bool(p.get("snowball_v3", False))
+        sb_econ_key = None
         if sb and not emergency and not (t < self.flee_until):
             # 1) Aggressive cube grab (instant +56 HP heal + 4% dmg + upgrade!)
             best_cube = None
             best_cd = 1e9
+            best_cid = None
             cube_lim = p.get("snowball_cube_r", 50.0) if sb_los_mechs == 0 else 22.0
             for c in obs.get("cubes", []):
+                ckey = ("cube", c.get("id"))
+                if sb3 and self.econ_bl.get(ckey, -1e9) > t:
+                    continue
                 cx, cy, cz = c["pos"]
                 if abs(cz - z) > 4.5:
                     continue
@@ -431,8 +455,10 @@ class Brain:
                     continue
                 best_cd = cd
                 best_cube = (cx, cy)
+                best_cid = ckey
             if best_cube is not None:
                 goal, goal_kind = best_cube, "cube"
+                sb_econ_key = best_cid
                 sb_econ_lock = (best_cd < 26.0 or sb_los_mechs == 0)
                 if best_cd > 10.0 and me.get("energy", 0) > 40.0:
                     sb_boost = True
@@ -466,6 +492,8 @@ class Brain:
                 best_psc = -1e18
                 pk_lim = p.get("snowball_pickup_r", 135.0) if sb_los_mechs == 0 else 28.0
                 for pid, (pkind, ppos, pt) in self.known_pickups.items():
+                    if sb3 and self.econ_bl.get(("pk", pid), -1e9) > t:
+                        continue
                     if pkind in held or pkind not in pref:
                         continue
                     prank = pref.index(pkind)
@@ -484,9 +512,10 @@ class Brain:
                     sc = (120.0 - prank * 25.0) - pd * 0.8
                     if sc > best_psc:
                         best_psc = sc
-                        best_pk = (ppos[0], ppos[1], pd)
+                        best_pk = (ppos[0], ppos[1], pd, ("pk", pid))
                 if best_pk is not None and (sb_los_mechs == 0 or (best_pk[2] < 28.0 and hp_frac > 0.45)):
                     goal, goal_kind = (best_pk[0], best_pk[1]), "weapon"
+                    sb_econ_key = best_pk[3]
                     sb_econ_lock = (best_pk[2] < 32.0 or w1 is None)
                     if best_pk[2] > 10.0 and me.get("energy", 0) > 45.0:
                         sb_boost = True
@@ -582,6 +611,23 @@ class Brain:
                 lg = loot_goal(obs, me, p, self.world, goal_threats, t)
                 if lg is not None:
                     goal, goal_kind = lg, "loot"
+
+        # Timeout blacklist for unreachable cubes/pickups (fixes seed 16001 152s freeze!)
+        if sb3:
+            if sb_econ_key is not None:
+                if sb_econ_key == self.econ_track_key:
+                    self.econ_track_t += dt
+                    if self.econ_track_t > 5.5 or (self.stuck_t > 0.9 and self.econ_track_t > 1.5):
+                        self.econ_bl[sb_econ_key] = t + 35.0
+                        self.econ_track_key = None
+                        self.econ_track_t = 0.0
+                        sb_econ_lock = False
+                else:
+                    self.econ_track_key = sb_econ_key
+                    self.econ_track_t = 0.0
+            else:
+                self.econ_track_key = None
+                self.econ_track_t = 0.0
 
         # ---- hunting ------------------------------------------------------
         # Close on the nearest known enemy and finish it.  This is the opposite
@@ -773,7 +819,7 @@ class Brain:
         if t < self.kite_until and self.kite_dir is not None:
             kx, ky = self.kite_dir
             if p["kite_cover"] and visible:
-                bh = self._break_heading(x, y, z, visible, t)
+                bh = self._break_heading(x, y, z, visible, t, all_threats=threats, cc=(ccx, ccy), cr=cr)
                 if bh is not None:
                     kx, ky = bh
             gx, gy = x + kx * 130.0, y + ky * 130.0
@@ -1096,6 +1142,51 @@ class Brain:
                         goal, goal_kind = self.tc_cov_cache, "tc_reload"
                         covered = True
 
+        # ---- snowball_v3 pure laser-duck + 1v1 angle isolation (E46) -----
+        if sb3 and not emergency and not roof_active and not p.get("tactical_cover_v1", False):
+            my_body = (x, y, z + 0.5 * self.world.height)
+            # 1) Pure laser-telegraph cover duck (0.5s boost behind wall, ZERO fire suppression!)
+            laser_eyes = []
+            if p.get("sb3_laser_duck", True) and visible:
+                for e in visible:
+                    if not e.get("charging"):
+                        continue
+                    ed_l = math.hypot(e["pos"][0] - x, e["pos"][1] - y)
+                    if ed_l > 260.0:
+                        continue
+                    if w1_kind == "lightning" and ed_l < my_light_r - 1.0 and me.get("energy", 0) > 10:
+                        continue
+                    b_to_us = math.atan2(y - e["pos"][1], x - e["pos"][0])
+                    if abs(wrap((e.get("aim") or [0.0, 0.0])[0] - b_to_us)) < 0.38:
+                        ez_l = e["pos"][2] + self.world.eye_height * size_scale(e.get("cubes", 0), self.world.size_per_cube)
+                        if self.world.shot_clear((e["pos"][0], e["pos"][1], ez_l), my_body, step=3.0):
+                            laser_eyes.append((e["pos"][0], e["pos"][1], ez_l))
+            if laser_eyes:
+                cov = find_quick_cover(self.world, x, y, z, laser_eyes, max_r=13.0, step=3.0,
+                                       zone_center=(ccx, ccy), zone_radius=cr)
+                if cov is not None:
+                    goal, goal_kind = cov, "tc_laser"
+                    covered = True
+                tc_boost = True
+            # 2) 1v1 corner angle isolation (slice the pie in 1v2+ fights while shooting!)
+            elif (p.get("sb3_isolate", True) and sb_los_mechs >= 2
+                  and not kiting and not sb_econ_lock and duel_tgt is not None):
+                others = [
+                    (e["pos"][0], e["pos"][1],
+                     e["pos"][2] + self.world.eye_height * size_scale(e.get("cubes", 0), self.world.size_per_cube))
+                    for e in visible if e.get("id") != duel_tgt.get("id")
+                    and math.hypot(e["pos"][0] - x, e["pos"][1] - y) < 150.0
+                ]
+                if others:
+                    if t - self.iso_t > 0.45 or self.iso_cache is None:
+                        p_pos = target_center(duel_tgt, self.world.size_per_cube, self.world.height, p["aim_height_frac"])
+                        self.iso_cache = find_isolate_spot(
+                            self.world, x, y, z, p_pos, others,
+                            zone_center=(ccx, ccy), zone_radius=cr, step=3.0)
+                        self.iso_t = t
+                    if self.iso_cache is not None:
+                        goal, goal_kind = self.iso_cache, "tc_iso"
+
         # a hide spot we are already standing on is not a goal: stop orbiting
         if covered:
             deadzone = 1.8
@@ -1124,7 +1215,7 @@ class Brain:
 
         # dodge incoming fire and telegraphed lasers
         from combat import dodge_vector, laser_dodge
-        dvx, dvy = dodge_vector(me, obs.get("projectiles", []), p)
+        dvx, dvy = dodge_vector(me, obs.get("projectiles", []), p, self.cfg)
         lvx, lvy = laser_dodge(me, visible, p)
         mx = mvx + dvx * 1.4 + lvx * 1.2
         my = mvy + dvy * 1.4 + lvy * 1.2

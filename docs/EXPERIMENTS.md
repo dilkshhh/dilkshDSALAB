@@ -385,6 +385,32 @@ Metrics (96-match means): dealt 2,728 → **3,699** (+971, +36 %), taken 1,741 �
 0.37 → **1.73** (4.7×; 9.6× on holdout), zone deaths 6 → 2, seed 16000 reached **3.00**
 with **2.38 kills**. Adopted as default; ready for official calibration probe after sandbox check.
 
+### E46 — Snowball v3 (`snowball_v3` + `laser > lightning > mortar > gun`, adopted)
+Built on top of E45 (`snowball_v2`):
+1. **Unreachable-loot timeout blacklist (5.5 s / 35 s)**: fixes a severe bug observed on
+   seed 16001 where an unreachable cube froze the bot for 152 s.
+2. **Pure enemy-laser cover duck (`sb3_laser_duck`)**: 0.5 s boost behind a nearby wall
+   when an enemy charges a laser aimed at us, with **zero fire suppression**.
+3. **1v1 corner angle isolation (`cover.find_isolate_spot`, `sb3_isolate`)**: when 2+
+   enemies have direct LOS simultaneously, step ≤10.5 m to a spot that keeps clear shot
+   on the primary target while occluding extra enemies.
+4. **Ballistic mortar dodge (`combat.dodge_vector`)**: exact gravity landing-point
+   prediction for incoming mortar shells (fixes defect D11).
+5. **Threat- & edge-aware `_break_heading`**: avoid kiting into idle house bots (<48 m)
+   or into the open map boundary.
+6. **Weapon preference `laser > lightning > mortar > gun` (`E46b`)**: tested against
+   `lightning > laser` (`E46a`), unlocking safe 60–180 m dual-wielding laser+gun bursts.
+
+| Set | Orig Base | E45 (`v2`) | **E46b (`sb3` + laser)** | Paired Δ vs Base | Per-range Δ vs Base |
+| --- | --- | --- | --- | --- | --- |
+| train (n=48) | 1.98 / 1.25k | 2.48 / 1.96k | **2.81 / 2.10k / 76.2s** | **+0.83 ± 0.43** (**+0.85 ± 0.40k**) | `+1.12 / −0.56 / +1.94` |
+| holdout (n=48) | 1.67 / 1.23k | 2.42 / 1.90k | **2.52 / 2.10k / 64.7s** | **+0.85 ± 0.35** (**+0.88 ± 0.32k**) | **`+1.19 / +0.62 / +0.75`** |
+| **combined (n=96)** | **1.82 / 1.24k** | **2.45 / 1.93k** | **2.67 / 2.10k / 70.5s** | **+0.84 ± 0.28** (**+0.86 ± 0.25k**) | **3.0σ score, 3.4σ kills** |
+
+Metrics (96-match means): dealt 2,728 → **4,103** (+1,375, +50 %), taken 1,741 → **1,986**
+(+245), trade ratio 1.57× → **2.07×** (2.07× train, 2.06× holdout), cubes 0.37 → **2.10**
+(5.7×), train ranges 8000/13000 reached **3.06** and **3.19**. Adopted as default; overturns F8.
+
 ---
 
 ## Rejected

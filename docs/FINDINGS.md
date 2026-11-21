@@ -100,25 +100,25 @@ back.
 Corollary: chip damage at long range is close to worthless, and *dealing* damage
 resets our own regen timer, so poking also costs us healing.
 
-## F8 — Weapon DPS, at realistic hit rates `[measured, E38, E39]`
+## F8 — Weapon DPS and dual-wielding `[measured, E38, E39, E43, E45, E46 — overturned]`
 
-Nominal (perfect accuracy): gun 45/0.24 = **187 dps**; laser 315/(0.75 charge +
-1.65 cooldown) = **131 dps**; lightning 60/0.25 = **240 dps** but only inside 45 m;
-mortar 200/2.6 = 77 dps plus 160 splash.
+The gun's nominal peak rate is 45/0.24 = 187.5 dps, **but sustained DPS including
+the 12-round mag and 2.4 s reload is only 540 / 5.04 s = 107 dps**. Crucially, slot 0
+(gun) and slot 1 (secondary) **fire simultaneously (dual-wielding)**:
 
-But the laser is only 131 dps **at full charge**, and we release at
-`laser_min_charge 0.45`, where `frac = 0.35 + 0.65×0.45 = 0.64` → 202 damage per
-1.99 s cycle = **101 dps, worse than the gun**. Raising the release threshold to
-0.9 only recovers it to 126 dps (E39).
+- **Gun + Laser (full/lethal charge):** 107 + 131 = **238 sustained dps** (+122 %),
+  with a **315–504 hitscan burst** (+60 % cookoff vs mortar) at safe 60–180 m range.
+- **Gun + Lightning (shared-pitch inside 45 m):** 107 + 240 = **347 sustained / 427
+  burst dps** (+224 %), plus 2-target chain and 3 s laser shorting.
+- **Gun + Mortar (angular aim fix + cluster):** 107 + 77–138 dps plus 7 m splash.
 
-Measured: removing the secondary entirely costs **~0.17 score** (E38). The laser is
-therefore worth carrying but is *not* a damage multiplier — it is roughly
-DPS-neutral with the gun and better only because it is hitscan.
-
-**Consequence: hypothesis H1 is dead.** "Acquire a laser, then kill 5" does not
-work, because the laser is not 3× the gun. The missing factor is elsewhere.
-
-Lightning remains the anomaly: 240 dps inside 45 m, and we rank it **last**.
+Earlier experiments (E38, E39) concluded that the laser was DPS-neutral because the
+old arbiter released at `laser_min_charge 0.45` (101 dps), dumped charges into walls
+on brief LOS loss, and lacked cube/upgrade scaling. With full/lethal dual-wielding
+laser + snowball economy (`E46b`, `weapon_pref=[laser, lightning, mortar, gun]`),
+local score jumped from **1.82 → 2.67 (+0.84 ± 0.28 across 96 matches)**, kills from
+**1.24 → 2.10 (+69 %)**, dealt from **2,728 → 4,103 (+50 %)**, and trade ratio from
+**1.57× → 2.07×**. **H1 is revived under dual-wielding + snowball economy.** See D-14.
 
 ## F9 — Weapon uptime is the real acquisition problem `[measured, E37]`
 

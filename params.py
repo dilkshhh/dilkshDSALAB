@@ -53,7 +53,7 @@ DEFAULT = {
     "scan_enabled": True,         # sweep the torso when idle to widen the vision wedge
     "scan_period_s": 7.0,
     # --- weapons -------------------------------------------------------
-    "weapon_pref": ["lightning", "laser", "mortar", "gun"],
+    "weapon_pref": ["laser", "lightning", "mortar", "gun"],
     "gun_min_hit": 1.25,          # fire only if predicted miss < this * target radius
     # Damage split across many targets produces damage but no kills, and place
     # only improves when a bot actually dies.
@@ -207,6 +207,10 @@ DEFAULT = {
     "sb2_patrol_until": 150.0,    # actively patrol at full speed while hungry for weapon/cubes
     "sb2_light_rush": True,       # suppress 2-hit kite during healthy 1v1 lightning rush
     "sb2_drop_contest": True,     # contest reachable supply drops (full HP + 3 cubes)
+    # --- snowball v3 (E46): loot-timeout fix, laser-only duck, 1v1 angle isolation, ballistic mortar dodge, threat-aware kite
+    "snowball_v3": True,          # A/B E46b (laser>light): +0.84 ± 0.28 across 96 matches (2.81 train / 2.52 holdout, 2.10 kills)
+    "sb3_laser_duck": True,       # pure 0.5s cover-duck on enemy laser telegraph (no fire suppression)
+    "sb3_isolate": True,          # 1v1 corner angle isolation when 2+ enemies have LOS
 }
 
 

@@ -103,15 +103,38 @@ def mortar_pitch(R, dz, v, g):
     return (math.atan2(v2 - root, g * R), math.atan2(v2 + root, g * R))
 
 
-def dodge_vector(me, projectiles, params):
-    """Perpendicular escape from incoming bullets/shells."""
+def dodge_vector(me, projectiles, params, cfg=None):
+    """Perpendicular escape from incoming bullets and ballistic mortar landing zones."""
     px, py, pz = me["pos"][0], me["pos"][1], me["pos"][2]
     cx, cy = 0.0, 0.0
     horizon = params["dodge_lead_s"]
     vel = me.get("vel", [0.0, 0.0, 0.0])
+    mortar_cfg = ((cfg or {}).get("weapons", {}) or {}).get("mortar", {}) or {}
+    mg = float(mortar_cfg.get("gravity", 22.0))
+    msplash = float(mortar_cfg.get("splash_radius", 7.0)) + 3.5
+    v3_mortar = bool(params.get("snowball_v3", False))
     for pr in projectiles:
         q = pr["pos"]
         v = pr["vel"]
+        if v3_mortar and pr.get("kind") == "mortar":
+            # Exact ballistic landing time to our elevation z: qz + vz*t - 0.5*g*t^2 = pz
+            dz = q[2] - pz
+            vz = v[2]
+            disc = vz * vz + 2.0 * mg * max(-20.0, dz)
+            if disc >= 0.0:
+                t_land = (vz + math.sqrt(disc)) / max(1.0, mg)
+                if 0.0 < t_land < 3.5:
+                    ix = q[0] + v[0] * t_land
+                    iy = q[1] + v[1] * t_land
+                    dx_m, dy_m = px - ix, py - iy
+                    md_m = math.hypot(dx_m, dy_m)
+                    if md_m < msplash:
+                        w = (1.0 - md_m / msplash) * (2.2 if t_land < 1.2 else 1.3)
+                        if md_m < 0.1:
+                            dx_m, dy_m, md_m = -v[1], v[0], max(0.1, math.hypot(v[0], v[1]))
+                        cx += dx_m / md_m * w
+                        cy += dy_m / md_m * w
+            continue
         rx, ry = q[0] - px, q[1] - py
         rvx, rvy = v[0] - vel[0], v[1] - vel[1]
         vn = rvx * rvx + rvy * rvy

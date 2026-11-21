@@ -31,14 +31,15 @@ meaned over 48 matches on seeds that are fixed for the whole event. See
 
 ## What the bot is right now
 
-`HEAD` is **`E45 snowball_v2`** — the first architecture in the project to break the
-2.10 local ceiling on both train and holdout:
-- **Train (n=48):** score **2.48** (+0.50 vs 1.98), kills **1.96** (+0.71), dealt **3,729** (+833), taken **1,968** (+231)
-- **Holdout (n=48):** score **2.42** (+0.75 vs 1.67), kills **1.90** (+0.67), dealt **3,668** (+1,108), trade ratio **1.98×**
-- **Combined (n=96):** score **2.45** (**+0.625 ± 0.23**), kills **1.93** (**+0.69 ± 0.18**, +56%), 6/6 seed ranges non-negative.
+`HEAD` is **`E46b snowball_v3` (`laser > lightning > mortar > gun`)** — shattering the
+old 2.10 local ceiling by **+0.84 ± 0.28 across 96 matches (3.0σ)** with identical train
+and holdout gains:
+- **Train (n=48):** score **2.81** (+0.83 vs 1.98; 8000=3.06, 13000=3.19), kills **2.10** (+0.85), dealt **4,170** (+1,274), taken **2,013** (+276), trade ratio **2.07×**, death **76.2s**
+- **Holdout (n=48):** score **2.52** (+0.85 vs 1.67; 3/3 ranges positive +1.19/+0.62/+0.75), kills **2.10** (+0.88), dealt **4,036** (+1,476), trade ratio **2.06×**
+- **Combined (n=96):** score **2.67** (**+0.84 ± 0.28**), kills **2.10** (**+0.86 ± 0.25**, +69%), cubes **2.10** (5.7×).
 
-Mechanisms added in E41–E45:
-- **Adopted:** `snowball_v1` + `snowball_v2` (lightning-first preference, gun+lightning shared-pitch dual-wielding, full/lethal laser charge controller, mortar ballistic aim fix + cluster targeting, proactive gun reload, fixed exact upgrade valuation for `armor`/`plating`, persistent `known_pickups` memory, active early patrol, safe NPC drone & crate farming, aggressive cube & 3-cube kill-loot scooping, lightning 1v1 rush, enemy lightning hard-counter, supply drop contesting, zone emergency fix, crash-safe `Bot.act` wrapper).
+Mechanisms added in E41–E46:
+- **Adopted:** `snowball_v1` + `snowball_v2` + `snowball_v3` (dual-wielding `laser > lightning > mortar > gun`, full/lethal laser charge with 0.65 s LOS-flicker guard, shared-pitch gun+lightning, mortar ballistic aim fix + cluster targeting, proactive reload, fixed exact upgrade valuation for `armor`/`plating`, persistent `known_pickups` memory, active early patrol, safe NPC drone & crate farming, aggressive cube & 3-cube kill-loot scooping with 5.5 s unreachable-loot blacklist, lightning 1v1 rush, enemy lightning hard-counter, supply drop contesting, pure laser-telegraph cover duck, 1v1 corner angle isolation, ballistic mortar dodge, threat/edge-aware kite, zone emergency fix, crash-safe `Bot.act`).
 - **Tested and rejected (kept behind default-off flags):** `combat_v2` open-ground strafing (−0.15, −16.7s life), `roof_enabled` rooftop camping (−0.23, +10s life, −0.42k, 8× mortar dmg), `tactical_cover_v1` low-HP hold-fire regen (−0.23 vs E43, −0.32k).
 
 ## The central problem

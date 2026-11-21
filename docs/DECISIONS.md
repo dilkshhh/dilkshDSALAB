@@ -184,4 +184,23 @@ policy may convert it.
 **Consequence.** HEAD = the 2.52 build. Nothing in the tree is a regression. The
 platform locks the best score at cutoff, so 2.52 is safe regardless.
 
+---
+
+## D-14 — Reversal: dual-wielding laser + snowball economy overturns F8 `[supersedes F8 "H1 is dead"]`
+
+**Context.** E38/E39 measured the laser as ~DPS-neutral with the gun because the old
+arbiter released at 45 % charge, lacked gun+secondary dual-wielding, dumped charges on
+LOS flicker, and compared laser DPS (131) against gun peak burst (187) rather than gun
+sustained DPS with reload (107).
+
+**Decision.** Adopt `snowball_v1` + `snowball_v2` + `snowball_v3` with
+`weapon_pref = ["laser", "lightning", "mortar", "gun"]` (E43, E45, E46b): full/lethal
+dual-wielding laser + shared-pitch lightning + ballistic-fixed mortar + active cube/drone/
+crate/kill-loot snowballing + fixed upgrade valuation + pure laser-duck + 1v1 corner
+angle isolation.
+
+**Consequence.** Combined 96-match local score jumped from **1.82 → 2.67 (+0.84 ± 0.28,
+3.0σ)** with identical deltas on train (+0.83) and untouched holdout (+0.85), kills
+**1.24 → 2.10 (+69 %)**, dealt **2,728 → 4,103 (+50 %)**, and trade ratio **1.57× → 2.07×**.
+
 **Next:** [`EXTERNAL_REVIEWS.md`](EXTERNAL_REVIEWS.md) — what outside models said.
