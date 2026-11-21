@@ -111,7 +111,18 @@ class Planner:
                     heapq.heappush(openq, (ng + h(nxt), ng, nxt))
         return []
 
-    def steer(self, x, y, gx, gy, z, path=None, radius=2.2):
+    def reach(self, x, y, z, ux, uy, radius=2.5):
+        """How far (m) a body can travel from (x,y) along a unit heading."""
+        out = 0.0
+        px, py = x, y
+        for d in (2.0, 4.0, 6.0, 9.0, 13.0):
+            qx, qy = x + ux * d, y + uy * d
+            if not self.w.walk_clear(px, py, qx, qy, z, radius=radius):
+                break
+            out, px, py = d, qx, qy
+        return out
+
+    def steer(self, x, y, gx, gy, z, path=None, radius=2.5):
         """Return a unit (dx,dy) direction toward the goal that avoids walls."""
         dx, dy = gx - x, gy - y
         d = math.hypot(dx, dy)
@@ -131,17 +142,54 @@ class Planner:
                                                        y + vy / vd * min(look, vd), z, radius=radius):
                         return (vx / vd, vy / vd)
                     break
-        # heading fan
+        # heading fan: prefer the closest heading that is genuinely walkable
         best = None
         best_score = -1e18
         base = math.atan2(uy, ux)
-        for da in (0.0, 0.45, -0.45, 0.9, -0.9, 1.4, -1.4, 1.9, -1.9, 2.5, -2.5, math.pi):
+        for da in (0.0, 0.3, -0.3, 0.6, -0.6, 0.9, -0.9, 1.2, -1.2,
+                   1.6, -1.6, 2.0, -2.0, 2.5, -2.5, math.pi):
             a = base + da
             cx, cy = math.cos(a), math.sin(a)
-            ok = self.w.walk_clear(x, y, x + cx * 10.0, y + cy * 10.0, z, radius=radius)
-            if ok:
-                score = math.cos(da) * 3.0 - 0.05 * abs(da)
-                if score > best_score:
-                    best_score = score
-                    best = (cx, cy)
+            clear = self.reach(x, y, z, cx, cy, radius=radius)
+            if clear < 2.0:
+                continue
+            score = math.cos(da) * 3.0 - 0.05 * abs(da) + 0.12 * clear
+            if score > best_score:
+                best_score = score
+                best = (cx, cy)
+            if da == 0.0 and clear >= 9.0:
+                return (ux, uy)
         return best or (ux, uy)
+
+
+def safe_heading(world, x, y, z, mx, my, radius=2.5, min_reach=8.0):
+    """Rotate a composed movement vector to the nearest body-clear heading.
+
+    Dodge / NPC-repulsion / strafe contributions can point a perfectly good
+    steering direction straight into a wall.  Always re-validate the *final*
+    vector.  Returns ((dx,dy), reach).
+    """
+    m = math.hypot(mx, my)
+    if m < 1e-6:
+        return (0.0, 0.0), 0.0
+    ux, uy = mx / m, my / m
+    if world.walk_clear(x, y, x + ux * min_reach, y + uy * min_reach, z, radius=radius):
+        return (ux, uy), min_reach
+    base = math.atan2(uy, ux)
+    best, best_reach = (ux, uy), 0.0
+    for da in (0.2, -0.2, 0.4, -0.4, 0.65, -0.65, 0.9, -0.9, 1.2, -1.2,
+               1.5, -1.5, 1.85, -1.85, 2.2, -2.2, 2.6, -2.6, math.pi):
+        a = base + da
+        cx, cy = math.cos(a), math.sin(a)
+        clear = 0.0
+        px, py = x, y
+        for d in (2.0, 4.0, 6.0, 9.0, 13.0):
+            qx, qy = x + cx * d, y + cy * d
+            if not world.walk_clear(px, py, qx, qy, z, radius=radius):
+                break
+            clear, px, py = d, qx, qy
+        if clear >= min_reach:
+            return (cx, cy), clear
+        if clear > best_reach:
+            best_reach, best = clear, (cx, cy)
+    return best, best_reach
