@@ -1,6 +1,7 @@
-"""Tunable policy knobs. A local A/B run overrides a subset by passing a dict to Brain().
+"""Tunable policy knobs.
 
-The production image always uses DEFAULT (no environment variables are read at runtime).
+A local A/B run injects a variant with the BOT_PARAMS environment JSON (or by
+passing a dict to Brain).  Production has no such variable, so it uses DEFAULT.
 """
 from __future__ import annotations
 
@@ -43,7 +44,19 @@ DEFAULT = {
     "crate_farm": False,          # shooting crates is loud (320 m gun sound)
     "npc_farm": False,            # NPC drones shoot back and make noise
     "npc_avoid": 42.0,            # keep this distance from drones
+    "npc_break_range": 50.0,      # sprint out of drone aggro inside this range
+    "npc_break_hold_s": 2.8,      # commit to the break for this long
     "drop_aggression": 0.0,       # 0 = ignore supply drops, 1 = always contest
+    # --- early roam / economy -------------------------------------------
+    "roam_until": 0.0,            # actively seek weapons + cubes before this t
+    # --- kiting the coordinated squad -----------------------------------
+    "kite_enabled": True,         # A/B: +0.55 paired, death t 80 -> 105
+    "kite_hp": 0.97,              # break contact below this HP fraction
+    "kite_hold_s": 6.0,           # commit to the break-away for this long
+    "weapon_seek_range": 130.0,
+    "roam_loot_range": 95.0,
+    "roam_omega": 0.16,           # rad/s of the exploration sweep
+    "roam_goal_frac": 0.55,       # sweep radius as a fraction of the circle
     "cube_detour": 26.0,          # max detour (m) to grab a loose cube
     "upgrade_plating": 10.0,
     "upgrade_armor": 8.5,
@@ -61,6 +74,15 @@ DEFAULT = {
     "laser_dodge_gain": 1.0,
     "strafe_gain": 0.85,
     "stuck_speed": 1.2,           # moved < this many m over 2 s => replan
+    "escape_hold_s": 1.6,         # commit to one escape heading for this long
+    # --- line-of-sight breaking (survival core) ------------------------
+    "cover_enabled": False,       # A/B: neutral in the local sim, costs ~10 ms/decision
+    "cover_hp": 0.78,             # seek cover below this HP fraction
+    "cover_after_hit": 0.35,      # ...or after this much recent damage pressure
+    "cover_min_enemy": 42.0,      # do not try to hide with a mech this close
+    "cover_max_r": 18.0,          # search radius for a hidden spot
+    "cover_cache_s": 0.6,         # recompute the cover spot this often
+    "cover_quiet": True,          # walk at <= step_speed while moving to cover
     # --- adaptive / final generalisation --------------------------------
     "adapt": True,                # modulate policy by observed opponent pressure
     "ffa_mode": False,            # simulator-only: opponents are independent, not a squad

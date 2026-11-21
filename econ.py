@@ -84,6 +84,69 @@ def choose_take(obs, me, params):
     return best["id"], 1
 
 
+def seek_goal(obs, me, params, world, threats, t, center, radius, seed):
+    """Early-game roaming objective.
+
+    The floor starts with 40 weapon pickups and 36 crates, and each cube
+    crosses an upgrade threshold (+4% HP and damage, up to +40%).  A bot that
+    camps on a hide spot collects none of it.  Returns (goal, kind).
+    """
+    x, y, z = me["pos"]
+    p = params
+    held = held_kinds(me)
+    pref = p["weapon_pref"]
+    best, best_score, kind = None, -1e30, "roam"
+    empty_slot = len(me["weapons"]) > 1 and me["weapons"][1] is None
+
+    def consider(cx, cy, cz, score, tag, max_d):
+        nonlocal best, best_score, kind
+        d = math.hypot(cx - x, cy - y)
+        if d > max_d or abs(cz - z) > 8.0:
+            return
+        # avoid walking through known enemies to get loot
+        near = min((math.hypot(cx - q[0], cy - q[1]) for q in threats), default=999.0)
+        if near < 35.0:
+            return
+        s = score - d * 0.35
+        if s > best_score:
+            best_score, best, kind = s, (cx, cy), tag
+
+    if empty_slot and p["take_pickups"]:
+        for pk in obs.get("pickups", []):
+            if pk["kind"] in held:
+                continue
+            try:
+                rank = pref.index(pk["kind"])
+            except ValueError:
+                rank = 9
+            consider(pk["pos"][0], pk["pos"][1], pk["pos"][2],
+                     120.0 - rank * 12.0, "weapon", p["weapon_seek_range"])
+
+    for c in obs.get("cubes", []):
+        consider(c["pos"][0], c["pos"][1], c["pos"][2], 60.0, "cube", p["roam_loot_range"])
+    if p["crate_farm"] and t < p["early_farm_until"]:
+        for cr in obs.get("crates", []):
+            consider(cr["pos"][0], cr["pos"][1], cr["pos"][2], 45.0, "crate",
+                     p["roam_loot_range"])
+    if p["npc_farm"] and t < p["early_farm_until"]:
+        for e in obs.get("mechs", []):
+            if e.get("kind") != "npc":
+                continue
+            consider(e["pos"][0], e["pos"][1], e["pos"][2], 25.0, "npc",
+                     p["roam_loot_range"])
+
+    if best is not None and world.blocked(best[0], best[1], world.ground(best[0], best[1]), 9.0):
+        best = None
+    if best is not None:
+        return best, kind
+
+    # slow deterministic sweep of the safe circle: covers fresh ground and
+    # reveals pickups that only become visible when we get close
+    a = ((seed % 360) * math.pi / 180.0) + t * p["roam_omega"]
+    r = radius * p["roam_goal_frac"]
+    return (center[0] + math.cos(a) * r, center[1] + math.sin(a) * r), "roam"
+
+
 def loot_goal(obs, me, params, world, threats, t):
     """Pick a nearby economic objective worth a small detour. Returns (x,y) or None."""
     x, y, z = me["pos"]
