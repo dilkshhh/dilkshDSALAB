@@ -84,3 +84,42 @@ deltas therefore under-report real differences, and **survival time is the
 primary local signal**. Absolute local scores are not comparable with the
 official practice score, which reaches 5.96 on the live leaderboard.
 
+### Measurement protocol (learned the hard way)
+
+The seed **range** behaves like a random effect: the same comparison can read
++0.67 on one range and −0.10 on another. Treating individual seeds as
+independent understates the error badly, so:
+
+- an effect needs **≥48 pairs spanning at least three seed ranges**;
+- report the per-range deltas, not just the pooled one;
+- anything under ~0.5 score is **not resolvable** with feasible sample sizes and
+  must be called inconclusive, not a win.
+
+A concrete example of why: focus fire measured `+0.38 ± 0.13` on 32 pairs from
+one range (11 wins / 2 losses, apparently decisive) and `−0.04 ± 0.08` on 48
+pairs from another. The first result was a false positive.
+
+### Experiments measured and rejected (defaults unchanged)
+
+| Change | Paired result | Decision |
+| --- | --- | --- |
+| Focus fire | +0.38 ± 0.13 (32 pairs, range 4000) then −0.04 ± 0.08 (48 pairs, range 8000) | kept as neutral/mechanically sound; the gain did **not** replicate |
+| Laser pre-charge without the fire gate | −0.16 ± 0.13 | off |
+| Indirect mortar targets (accept LOS-blocked) | −0.28 ± 0.11 | off |
+| Economy: early roam + crates + drops | −0.78 ± 0.36 | off |
+| High aim point (0.75 body height) | −0.47 ± 0.23 | off |
+| Open ground (`cover_bias` 0) | −0.22 ± 0.19 | off |
+| Aggression 1.0 / `engage_range` 240 | +0.12 ± 0.12 | inconclusive, unchanged |
+| Mortar-preferring loadout | −0.02 ± 0.09 | inconclusive, unchanged |
+| Zone-edge goal (`goal_offset` 0.78) | +0.19 / +0.67 / −0.10 across ranges 8000/11000/13000 | inconclusive (+0.25 ± 0.23 pooled); unchanged |
+
+### Decision-time budget
+
+Over 387 sampled decisions the bot had a shootable target **21 %** of the time,
+was alone **35 %**, and had enemies visible but terrain-blocked **44 %**. The
+fire gate was never the binding constraint: the arbiter passed literal
+`fire=True` and used the gate only for candidate utility, which is why every
+gate experiment measured flat. Damage is limited by target availability, not
+permission to shoot.
+
+
