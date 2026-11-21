@@ -30,7 +30,7 @@ def _spans(ring, y):
 
 
 class World:
-    def __init__(self, map_dir, cell=2.0, nav_cell=4.0, load_trees=True):
+    def __init__(self, map_dir, cell=2.0, nav_cell=8.0, load_trees=True):
         self.map_dir = map_dir
         with open(os.path.join(map_dir, "v2", "world.json"), "r", encoding="utf-8") as f:
             w = json.load(f)
@@ -362,4 +362,50 @@ class World:
             if (self.blocked(x, y, z, h) or self.blocked(x + px, y + py, z, h)
                     or self.blocked(x - px, y - py, z, h)):
                 return False
+        return True
+
+
+class NullWorld:
+    """Permissive stand-in when the arena files cannot be read.
+
+    A crashed mech is scored as a sitting target, so the bot must always keep
+    playing even if /arena is missing. Without a map it loses LOS/navigation
+    but keeps zone logic, facing, firing and economy working.
+    """
+
+    def __init__(self):
+        self.ready = False
+        self.minx, self.miny = -600.0, -600.0
+        self.nav_cell = 4.0
+        self.nx = self.ny = self.nnx = self.nny = 0
+        self.nav_blocked = bytearray(0)
+        self.nav_z = []
+        self.trees = []
+        self.tree_hash = {}
+
+    def ground(self, x, y):
+        return 0.0
+
+    def surface(self, x, y, z, step_up=1.2):
+        return 0.0
+
+    def idx(self, x, y):
+        return 0
+
+    def intervals(self, x, y):
+        return None
+
+    def blocked(self, x, y, z, h=9.0, step_up=1.2):
+        return False
+
+    def shot_clear(self, a, b, step=None):
+        return True
+
+    def vision_clear(self, a, b):
+        return True
+
+    def cover_score(self, x, y, z):
+        return 0.0
+
+    def walk_clear(self, x0, y0, x1, y1, z, h=9.0, radius=2.2):
         return True

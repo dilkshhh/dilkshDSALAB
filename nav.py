@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import heapq
 import math
+import time
 
 SQ2 = math.sqrt(2.0)
 DIRS = ((1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0),
@@ -12,6 +13,7 @@ DIRS = ((1, 0, 1.0), (-1, 0, 1.0), (0, 1, 1.0), (0, -1, 1.0),
 class Planner:
     def __init__(self, world):
         self.w = world
+        self.ok = bool(getattr(world, "ready", False))
         self.nx, self.ny = world.nnx, world.nny
         self.c = world.nav_cell
         self.minx, self.miny = world.minx, world.miny
@@ -43,8 +45,15 @@ class Planner:
                         return a, b
         return i, j
 
-    def path(self, sx, sy, gx, gy, budget=3500):
-        """Return a list of world waypoints, or [] if unreachable within budget."""
+    def path(self, sx, sy, gx, gy, budget=3500, time_budget=0.006):
+        """Return a list of world waypoints, or [] if unreachable within budget.
+
+        A hard wall-clock guard keeps this inside one decision's 50 ms budget even
+        on a slow 1-CPU match container.
+        """
+        if not self.ok:
+            return []
+        deadline = time.perf_counter() + time_budget
         si, sj = self.nearest_free(*self.cell(sx, sy))
         gi, gj = self.nearest_free(*self.cell(gx, gy))
         start = sj * self.nx + si
@@ -59,6 +68,8 @@ class Planner:
         closed = set()
         expanded = 0
         while openq and expanded < budget:
+            if expanded % 64 == 0 and time.perf_counter() > deadline:
+                break
             f, g, cur = heapq.heappop(openq)
             if cur in closed:
                 continue

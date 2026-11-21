@@ -14,7 +14,7 @@ from combat import Combat, clamp, wrap, size_scale, target_center
 from econ import choose_take, held_kinds, loot_goal, pick_upgrade
 from nav import Planner
 from params import DEFAULT
-from world import World
+from world import NullWorld, World
 from zone import ZoneModel, current_circle, outside_amount
 
 TAU = math.tau
@@ -33,7 +33,15 @@ class Brain:
         md = hello.get("map", {}).get("dir") or ""
         if not os.path.isdir(os.path.join(md, "v2")):
             md = os.path.join(os.path.dirname(os.path.abspath(__file__)), "arena")
-        self.world = World(md)
+        if not os.path.isdir(os.path.join(md, "v2")):
+            md = "/arena"
+        try:
+            self.world = World(md)
+        except Exception as exc:  # never let a missing map turn us into a sitting target
+            import sys
+            print("map unavailable (%s): running without arena geometry" % exc,
+                  file=sys.stderr, flush=True)
+            self.world = NullWorld()
         self.nav = Planner(self.world)
         self.zone = ZoneModel(cfg, self.seed)
         self.combat = Combat(self.world, self.p)
