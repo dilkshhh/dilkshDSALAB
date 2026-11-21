@@ -86,6 +86,12 @@ DEFAULT = {
     # Instead of one fixed aggression for every fight, read the rolling HP
     # exchange: press while out-damaging them, break off when losing it.
     "trade_adapt": False,         # A/B switch
+    # A kill drops cubes at the corpse (death_drop + death_drop_extra), and
+    # cubes are the only multiplicative stat gain in the game.  Collecting our
+    # own kills is low-exposure economy: we are already there.
+    "loot_kill_enabled": False,   # A/B switch
+    "loot_kill_window_s": 7.0,    # how long the corpse is worth visiting
+    "loot_kill_clear_r": 55.0,    # only detour if nothing is this close
     "trade_press_ratio": 1.35,    # dealt/taken above this = winning the trade
     "trade_press_hp": 0.45,       # ... and healthy enough to press
     "trade_flee_ratio": 0.65,     # dealt/taken below this = losing it

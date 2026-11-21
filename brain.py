@@ -88,6 +88,7 @@ class Brain:
         self.taken_recent = 0.0
         self.press = False
         self.disengage = False
+        self.kill_loot = None
         self.kite_dir = None
         self.kite_until = -1.0
         self._break_dir = None
@@ -144,6 +145,7 @@ class Brain:
         self.taken_recent = max(0.0, self.taken_recent - dt * 55.0)
 
         my_id = me.get("id")
+        kill_ids = []
         for e in obs.get("events", []):
             ty = e.get("type")
             if ty == "damaged":
@@ -153,6 +155,10 @@ class Brain:
                 b = e.get("bearing")
                 if b is not None:
                     self.damage_bearings.append((b, t, float(e.get("amount", 0))))
+            elif ty == "kill":
+                tid = e.get("target")
+                if tid is not None and tid != my_id:
+                    kill_ids.append(tid)
             elif ty == "hit":
                 # confirmation that one of our shots landed
                 tgt = e.get("target")
@@ -160,7 +166,14 @@ class Brain:
                     self.dealt_recent += float(e.get("amount", 0) or 0.0)
                     self.last_hit_t = t
         self.damage_bearings = [d for d in self.damage_bearings if t - d[1] < 6.0]
+        # resolve fresh kill positions after the belief layer has seen the obs
+        if getattr(self, "_kill_ids", None) and self.intel_enabled:
+            for tid in self._kill_ids:
+                b = self.intel.beliefs.get(tid)
+                if b is not None and b.pos is not None:
+                    self.kill_loot = (b.pos[0], b.pos[1], t)
 
+        self._kill_ids = kill_ids
         if self.intel_enabled:
             # D1: `obs.mechs` positions are already the server's real current
             # positions for `vision.memory_s`; do not dead-reckon them.
@@ -361,6 +374,13 @@ class Brain:
                 if ed > p["hunt_standoff"]:
                     goal, goal_kind = (e["pos"][0], e["pos"][1]), "hunt"
                     hunting = True
+
+        # ---- collect our own kill ------------------------------------------
+        if (p["loot_kill_enabled"] and self.kill_loot is not None
+                and not emergency and not hunting and not (t < self.flee_until)
+                and t - self.kill_loot[2] < p["loot_kill_window_s"]
+                and hp_frac > 0.35 and mclose > p["loot_kill_clear_r"]):
+            goal, goal_kind = (self.kill_loot[0], self.kill_loot[1]), "loot"
 
         # ---- LOS-breaking cover -------------------------------------------
         # Squad vision is shared; distance-hiding fails, occlusion works.
