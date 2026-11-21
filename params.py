@@ -76,9 +76,20 @@ DEFAULT = {
     # than the emulation assumes.
     "hunt_enabled": True,         # actively seek and engage (probe build)
     "hunt_range": 170.0,          # only chase enemies known inside this range
-    "hunt_standoff": 55.0,        # close to this distance, then hold
+    "hunt_standoff": 45.0,        # close to this distance, then hold
     "hunt_hp": 0.45,              # stop hunting below this HP fraction
-    "hunt_until": 300.0,          # stop hunting after this match time
+    "hunt_until": 420.0,          # stop hunting after this match time
+    # Chasing the nearest enemy spreads damage across fresh targets; chasing
+    # the weakest one converts it into kills, and place only improves on kills.
+    "hunt_target": "weak",        # "weak" = lowest HP first, "near" = closest
+    # --- situational controller ----------------------------------------
+    # Instead of one fixed aggression for every fight, read the rolling HP
+    # exchange: press while out-damaging them, break off when losing it.
+    "trade_adapt": False,         # A/B switch
+    "trade_press_ratio": 1.35,    # dealt/taken above this = winning the trade
+    "trade_press_hp": 0.45,       # ... and healthy enough to press
+    "trade_flee_ratio": 0.65,     # dealt/taken below this = losing it
+    "trade_flee_hp": 0.32,        # ... or this hurt, disengage
     # --- early roam / economy -------------------------------------------
     "roam_until": 0.0,            # actively seek weapons + cubes before this t
     # --- kiting the coordinated squad -----------------------------------

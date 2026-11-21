@@ -83,6 +83,11 @@ class Brain:
         self.cover_cache = None
         self.cover_cache_t = -1e9
         self.last_damage_t = -1e9
+        self.last_hit_t = -1e9
+        self.dealt_recent = 0.0
+        self.taken_recent = 0.0
+        self.press = False
+        self.disengage = False
         self.kite_dir = None
         self.kite_until = -1.0
         self._break_dir = None
@@ -133,14 +138,27 @@ class Brain:
         dt = 0.1 if self.last_t < 0 else max(0.05, min(0.5, t - self.last_t))
         self.last_t = t
         self.recent_damage = max(0.0, self.recent_damage - dt * 0.55)
+        # Rolling HP exchange, used to decide whether we are winning the fight
+        # we are in.  Decays toward neutral so old trades stop mattering.
+        self.dealt_recent = max(0.0, self.dealt_recent - dt * 55.0)
+        self.taken_recent = max(0.0, self.taken_recent - dt * 55.0)
 
+        my_id = me.get("id")
         for e in obs.get("events", []):
-            if e.get("type") == "damaged":
+            ty = e.get("type")
+            if ty == "damaged":
                 self.recent_damage += 1.0
                 self.last_damage_t = t
+                self.taken_recent += float(e.get("amount", 0) or 0.0)
                 b = e.get("bearing")
                 if b is not None:
                     self.damage_bearings.append((b, t, float(e.get("amount", 0))))
+            elif ty == "hit":
+                # confirmation that one of our shots landed
+                tgt = e.get("target")
+                if tgt is None or tgt != my_id:
+                    self.dealt_recent += float(e.get("amount", 0) or 0.0)
+                    self.last_hit_t = t
         self.damage_bearings = [d for d in self.damage_bearings if t - d[1] < 6.0]
 
         if self.intel_enabled:
@@ -261,6 +279,16 @@ class Brain:
             if t > p["late_survival_t"]:
                 adapt += 0.5
 
+        # ---- situational controller -------------------------------------
+        if p["trade_adapt"]:
+            ratio = self.dealt_recent / max(1.0, self.taken_recent)
+            self.press = (ratio > p["trade_press_ratio"]
+                          and hp_frac > p["trade_press_hp"])
+            self.disengage = (ratio < p["trade_flee_ratio"]
+                              or hp_frac < p["trade_flee_hp"])
+        else:
+            self.press = self.disengage = False
+
         # ---- goal -------------------------------------------------------
         (ccx, ccy), cr = current_circle(obs["zone"], t)
         goal_threats = threats + [(m["pos"][0], m["pos"][1]) for m in npcs]
@@ -311,12 +339,24 @@ class Brain:
         # of the survival-first default, kept behind a switch because the
         # simulator's squad punishes it while the real squad may not.
         hunting = False
-        if (p["hunt_enabled"] and not emergency and hp_frac > p["hunt_hp"]
+        hunt_hp = p["hunt_hp"] * (0.6 if self.press else 1.0)
+        if (p["hunt_enabled"] and not emergency and not self.disengage
+                and hp_frac > hunt_hp
                 and t < p["hunt_until"] and not (t < self.flee_until)):
             cand = [e for e in visible
                     if math.hypot(e["pos"][0] - x, e["pos"][1] - y) < p["hunt_range"]]
             if cand:
-                e = min(cand, key=lambda q: math.hypot(q["pos"][0] - x, q["pos"][1] - y))
+                if p["hunt_target"] == "weak":
+                    # finish the wounded instead of opening a new front
+                    def rank(q):
+                        hp = q.get("hp")
+                        frac = (hp / max(1.0, q.get("max_hp") or 1400.0)
+                                if hp is not None else 1.0)
+                        return (frac, math.hypot(q["pos"][0] - x, q["pos"][1] - y))
+                else:
+                    def rank(q):
+                        return (0.0, math.hypot(q["pos"][0] - x, q["pos"][1] - y))
+                e = min(cand, key=rank)
                 ed = math.hypot(e["pos"][0] - x, e["pos"][1] - y)
                 if ed > p["hunt_standoff"]:
                     goal, goal_kind = (e["pos"][0], e["pos"][1]), "hunt"
@@ -356,8 +396,10 @@ class Brain:
         kiting = False
         recent_hits = [d for d in self.damage_bearings if t - d[1] < 3.0]
         if (p["kite_enabled"] and not emergency and not (t < self.flee_until)
-                and recent_hits and mclose < p["kite_range"]
-                and (hp_frac < p["kite_hp"] or len(recent_hits) >= 2)):
+                and recent_hits
+                and (mclose < p["kite_range"] or self.disengage)
+                and (hp_frac < p["kite_hp"] or len(recent_hits) >= 2
+                     or self.disengage)):
             vx = -sum(math.cos(d[0]) * (1.0 + min(d[2], 200.0) / 200.0) for d in recent_hits)
             vy = -sum(math.sin(d[0]) * (1.0 + min(d[2], 200.0) / 200.0) for d in recent_hits)
             vd = math.hypot(vx, vy) or 1.0
