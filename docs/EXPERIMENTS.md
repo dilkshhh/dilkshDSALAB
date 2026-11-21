@@ -462,7 +462,19 @@ its dropped secondary weapon.
 Metrics (96-match means): dealt 2,728 → **4,628** (+1,900, +70 %), taken 1,741 → **2,070**
 (+329), trade ratio 1.57× → **2.24×** (2.20× train, 2.28× holdout), dmg/kill 2,200 → **1,836**,
 cubes 0.37 → **3.12** (8.4×; 16× on holdout!). Every single seed range scored **2.94–3.62**.
-Adopted as default (`kill_snowball_v1: True`).
+Adopted as default (`kill_snowball_v1: True`). Independent train re-run verified **3.15** (2.44k, 73.4s).
+
+### E50–E55 — Ablations on top of E49 (`kill_snowball_v1`), all reverted
+Six controlled train (n=48) ablations on top of E49 (`3.15–3.27` train), none beating E49:
+- **E50a (`snowball_v5`, 2.27 / 1.67k / 66.7s, −0.88 vs E49)**: cutting `dodge_vector` (`1.4→0.45`) and skipping `strafe` during kite spiked gun deaths on 8000 `2→11`; suppressing boost while charging laser cut kite speed `9.0→5.85 m/s` (`boost*0.5` vs `walk*0.5`).
+- **E50b (`sb5_clean`, 2.69 / 2.15k / 71.0s, −0.46 vs E49)**: raising `pk_lim=75 m` in LOS of an enemy locked movement (`sb_econ_lock`) straight into gunfire.
+- **E51 (`kite_v2`, 2.58 / 1.92k / 65.0s, −0.57 vs E49)**: requiring `walk_clear` all the way to `16–34 m` in `_break_heading` rejected building-wrapping A* escapes, forcing open-street kiting (`−11 s` life).
+- **E52 (`evade_v2`, 2.92 / 2.31k / 67.0s, −0.23 vs E49, 1,790 dmg/k)**: flipping `strafe_sign` every `0.45–0.75 s` repeated the E47 failure (`−9 s` life, zig-zagging in place instead of curving behind cover); corner laser pre-charge also triggered `0.5×` speed penalty.
+- **E53 (`farm_snowball_v1`, 2.79 / 2.06k / 66.4s, −0.36 vs E49, 3.03 cubes)**: pulse-boosting patrol/farm (90 m boost sound + energy drain) and shooting crates/NPCs at `mclose=52 m` (320 m gun sound) drew nearby house bots (`−10 s` life).
+- **E54 (`laser_sniper_v1`, 2.83 / 2.25k / 62.2s, −0.32 vs E49, 8000=3.25)**: raising `fire_max_range=225 m` and laser standoff to `92 m` woke distant bots (`−14 s` life) and left kill corpses too far to scoop (cubes `2.97→2.37`).
+- **E55 (`finish_v1`, 2.94 / 2.23k / 69.4s, −0.21 vs E49, 8000=3.31)**: finish-kill commitment + `>115 m` bystander filter + reload-cover duck set a new high on `8000` (3.31 / 2.75k) but dropped cubes `2.97→2.17` and overall train below E49.
+
+**Takeaway:** E49 (`kill_snowball_v1`) sits at a sharp local optimum (~3.15 combined) where close-to-mid duels (~45 m), uninterrupted constant-direction strafe+dodge kiting, and immediate 3-cube corpse scooping reinforce each other. Crossing 4.0–5.0+ requires a new architectural mechanism, not small edits to E49.
 
 ---
 
