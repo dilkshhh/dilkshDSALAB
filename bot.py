@@ -1,13 +1,19 @@
 """Mech Royale entrypoint. `mechfight.run` owns the stdin/stdout loop."""
 import mechfight as mf
+from apex import ApexBrain
 from brain import Brain
+from params import load as load_params
 
 
 class Bot:
     name = "last-light"
 
     def __init__(self, hello: mf.Hello):
-        self.brain = Brain(hello)
+        p = load_params()
+        if p.get("engine_v2", True):
+            self.brain = ApexBrain(hello)
+        else:
+            self.brain = Brain(hello)
 
     def act(self, obs: mf.Observation) -> mf.Action:
         try:

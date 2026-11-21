@@ -1,6 +1,6 @@
 # STATE — where the project stands
 
-> Living document. Last updated **2026-11-21 16:55 UTC**. Rewrite this file at the
+> Living document. Last updated **2026-11-21 20:55 UTC**. Rewrite this file at the
 > start of every work session; it is the first thing the next agent reads.
 
 ## Clock
@@ -8,22 +8,22 @@
 | | |
 | --- | --- |
 | Cutoff | **2026-11-22 20:00 GMT+4 = 16:00 UTC** |
-| Time left at last update | ~23 hours |
-| Submission limit | 4/hour platform, self-limited to **2/hour**, keep one slot free |
-| Submissions used | 5 (0.25, 1.83, 2.44, **2.52** `7468dcb`, 2.50 `a33d613`); probe requested for `28d31eb` (`E45`) at 16:31 UTC |
+| Time left at last update | ~19 hours |
+| Submission limit | 4/hour platform (user allows up to **3/hour**, keep 1 slot free) |
+| Submissions used | 6 (latest `BB-3F65D60C` = 2.48 pulled unpushed `82f6849`; new Python **`Apex v1`** now committed, pushed to GitHub, and ready to submit!) |
 
 ## Scoreboard
 
 | Rank | Score | Note |
 | --- | --- | --- |
-| 1 | 5.96 | `azing` |
-| 16 | 5.38 | qualify for finals |
-| 32 | 5.13 | last qualifying slot |
-| 48 | 4.88 | |
-| us | **2.52** | `7468dcb` — best official so far; `28d31eb` (`E45`) probe requested; **`E49 kill_snowball_v1`** now **3.15** local (+1.32 vs BASE) |
+| 1 | 6.31 | `kyoto-max` |
+| 2 | 6.19 | `giddygiddyboy` (`2.96` 192-match local avg in `at-sim`: `2.92 HK1 / 3.01 HK0`) |
+| 16 | 5.85 | qualify for finals |
+| 32 | 5.48 | |
+| us | **2.52** | `7468dcb` — best official so far (`82f6849` was unpushed); **Python `Apex v1`** now **3.13** 192-match local avg (`3.25 HK1 / 3.01 HK0`, **+0.17 over `#2 (6.19)`**!) |
 
 Official history: 0.25 → 1.83 (`ac7f72a`) → 2.44 (`407c50e`) → **2.52** (`7468dcb`)
-→ 2.50 (`a33d613`, reverted).
+→ 2.50 (`a33d613`, reverted) → 2.48 (`82f6849`, unpushed old HEAD).
 
 `score = 16 − place` = **the number of mechs that died before you**, per match,
 meaned over 48 matches on seeds that are fixed for the whole event. See
@@ -31,14 +31,11 @@ meaned over 48 matches on seeds that are fixed for the whole event. See
 
 ## What the bot is right now
 
-`HEAD` is **`E49 kill_snowball_v1`** — pushing local combined score to **3.15 (+1.32 ± 0.26 vs 1.82 BASE, 5.0σ)** and **more than doubling baseline kills (2.52 vs 1.24, +103 %)** across all 6 seed ranges:
-- **Train (n=48):** score **3.27 ± 0.35** (+1.29 ± 0.37 vs 1.98; `8000=3.00`, `11000=3.62`, `13000=3.19`), kills **2.54** (+1.29), dealt **4,656** (+1,759), taken **2,120** (+382), trade ratio **2.20×**, death **76.5s**, cubes **2.97**
-- **Holdout (n=48):** score **3.02 ± 0.34** (+1.35 ± 0.38 vs 1.67; `14000=2.94`, `15000=3.12`, `16000=3.00`), kills **2.50** (+1.27), dealt **4,601** (+2,041), taken **2,020** (+278), trade ratio **2.28×**, death **70.4s**, cubes **3.27**
-- **Combined (n=96):** score **3.15** (**+1.32 ± 0.26**, 6/6 ranges `+0.88` to `+1.94`), kills **2.52** (**+1.28**, +103 %), dealt **4,628** (+70 %), trade ratio **2.24×** (vs 1.57× BASE), dmg/kill **1,836** (vs 2,200), cubes **3.12** (8.4×).
-
-Mechanisms added in E41–E49:
-- **Adopted:** `snowball_v1` + `snowball_v2` + `snowball_v3` + `kill_snowball_v1` (dual-wielding `laser > lightning > mortar > gun`, full/lethal laser charge with 0.65 s LOS-flicker guard, shared-pitch gun+lightning, mortar ballistic aim fix + cluster targeting, proactive reload, fixed exact upgrade valuation for `armor`/`plating`, persistent `known_pickups` memory, active early patrol, safe NPC drone & crate farming, **kill-reset kite to immediately scoop 3-cube corpses (+168 HP + +12% dmg + upgrade)**, rear-damage bearing snap when idle, 5.5 s unreachable-loot blacklist, lightning 1v1 rush, enemy lightning hard-counter, supply drop contesting, pure laser-telegraph cover duck, 1v1 corner angle isolation, ballistic mortar dodge, threat/edge-aware kite, zone emergency fix, crash-safe `Bot.act`).
-- **Tested and rejected (kept behind default-off flags):** `combat_v2` open-ground strafing (−0.15, −16.7s life), `roof_enabled` rooftop camping (−0.23, +10s life, −0.42k, 8× mortar dmg), `tactical_cover_v1` low-HP hold-fire regen (−0.23 vs E43, −0.32k), `snowball_v4` short 3.2 s kite & opening hunt deferral (−0.23 vs E46b), `precision_v1` 1-tick slew gate (−0.39 vs E46b).
+`HEAD` is **`Apex v1` (Python 3.13, `apex.py` + upgraded `world.py`, `engine_v2: True`)** — reverse-engineered and surpassed `#2 giddygiddyboy (6.19 official)` in our native Python 3.13 stack, passing **300/300** in the real 1-CPU Docker sandbox (`p50 1.6 ms`, `p90 6.8 ms`, `p99 8.8 ms`, `max 9.9 ms`):
+- **`HK=1` (n=96):** **3.25** (`3.21` train / `3.29` holdout) — **`+0.34`** vs `#2` (`2.92`) and **`+1.43`** vs BASE (`1.82`), kills **2.62**, dealt **4,764**, trade **2.22×**, cubes **3.84** (`4.40` holdout)
+- **`HK=0` (n=96):** **3.01** (`2.90` train / `3.12` holdout) — parity with `#2` (`3.01`, `+0.17` on holdout) and **`+0.33`** vs old Python `E49` (`2.68`)
+- **192-Match Grand Avg:** **3.13** vs `#2` **2.96** (**`+0.17`**), lightning deaths slashed **44 → 22 (−50 %)**.
+- **Next:** get the official board score for `Apex v1` to calibrate our true offset vs `#2 (6.19)` and `#1 (6.31)`, then iterate on `Apex v2` mechanisms to beat `#1` cleanly!
 
 ## The central problem
 

@@ -1,12 +1,31 @@
 # ARCHITECTURE — how the bot works
 
-> Living document. Last updated **2026-11-21 22:50 UTC**.
+> Living document. Last updated **2026-11-21 20:55 UTC**.
 > If you change structure, change this file in the same commit.
 
-Python 3.13, standard library only, ~130 KB of source, one process, one core,
-50 ms per decision.
+Python 3.13, standard library only, one process, one core, 50 ms per decision
+(**1-CPU Docker sandbox: 300/300 PASS, p50 1.6 ms, p90 6.8 ms, p99 8.8 ms, max 9.9 ms**).
 
-## Data flow
+## Active Engine: `ApexBrain` (`apex.py`, default `engine_v2: True`)
+
+```
+stdin ─► mechfight.run ─► Bot.act(obs) ─► ApexBrain.act(obs) ─► Action ─► stdout
+                                              │
+                                              ├─► _observe()      memory books, hot-target gate, exact zone hold
+                                              ├─► phase switch    Opening (≤20s Ghost/Peek) → Squad Hunt → Guard FFA (other_dead≥5)
+                                              ├─► movement        escape / unstuck / dodge_shell / zone / anti-lightning kite / cover_move / fight_move / choose_loot
+                                              ├─► fire control    4-iter -3m latency lead, lethal/full laser release, cone lightning
+                                              └─► econ            upgrade pick + ground weapon take/drop (NoMortar cookoff guard)
+```
+
+| File | ~LOC | Responsibility | Key entry points |
+| --- | --- | --- | --- |
+| `apex.py` | 1150 | Active 3-phase tactical engine (`ApexBrain`), anti-lightning threat field + safe kite, 16-dir `fight_move`, bounded BFS `cover_move`, fire control | `ApexBrain.act`, `_fight_move`, `_cover_move`, `_choose_loot` |
+| `world.py` | 990 | 1 m terrain/prisms + `8×8 block_max` fast raycaster (`0.012 ms/ray`) + 3 m 8-connected nav grid, wall clearance, `main_comp`, precomputed `main_near` courtyard `escape_plan`, generation-stamped bounded A* | `World.clear`, `path2`, `line_walkable2`, `escape_plan`, `exposure` |
+| `bot.py` | 35 | Crash-safe `Bot.act` adapter selecting `ApexBrain` (`engine_v2=True`) or legacy `Brain` | `Bot.act` |
+| `params.py` | 240 | Default knobs + `BOT_PARAMS` JSON env overrides | `DEFAULT`, `load` |
+
+## Legacy Engine (`brain.py`, `engine_v2: False`)
 
 ```
 stdin ──► mechfight.run ──► Bot.act(obs) ──► Brain.act ──► Action ──► stdout

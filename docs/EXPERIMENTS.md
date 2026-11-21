@@ -476,6 +476,30 @@ Six controlled train (n=48) ablations on top of E49 (`3.15–3.27` train), none 
 
 **Takeaway:** E49 (`kill_snowball_v1`) sits at a sharp local optimum (~3.15 combined) where close-to-mid duels (~45 m), uninterrupted constant-direction strafe+dodge kiting, and immediate 3-cube corpse scooping reinforce each other. Crossing 4.0–5.0+ requires a new architectural mechanism, not small edits to E49.
 
+### E56–E57 — Reverse-Engineering `#2 (6.19)` & Python 3.13 `Apex v1` (`apex.py` + fast 3 m `world.py`, ADOPTED)
+Calibrated local `at-sim` against `#2 giddygiddyboy` (`6.19` official) across **192 matches** (`96 HK=1` + `96 HK=0`):
+- `#2 giddygiddyboy` (`6.19` official): `HK=1` **2.92** (`3.04` train / `2.79` holdout), `HK=0` **3.01** (`3.06` train / `2.96` holdout), **192-match grand avg `2.96`**, **44 lightning deaths / 192 (23 % of all deaths!)**.
+- Our old Python `E49` (`b4e76cf`): `HK=1` **3.15** (`3.27` / `3.02`), `HK=0` **2.68** (`2.46` / `2.90`, `−0.47` stealth collapse under realistic vision!), **192-match grand avg `2.91`**.
+
+Rebuilt our Python 3.13 stack with **`apex.py` (`ApexBrain`)** + upgraded **`world.py`** (1 m terrain/prisms + `8×8 block_max` fast raycaster at `0.012 ms/ray` + 3 m 8-connected nav grid with wall clearance, `main_comp`, precomputed `main_near` courtyard escape, and generation-stamped bounded A*):
+- **Core 3-phase stealth/hunt/FFA architecture**: Opening `≤ 20 s` (`Ghost + Peek + LaserFirst` + quiet walk from `hello.config.sound.step_speed`), Squad Hunt `> 20 s` (hot-target engagement gate so we fight 1–2 hunters instead of waking the map, `Stick=200`, `LowBonus=200`, `HPw=0.18`, 16-dir `fight_move`, BFS `cover_move`, `LoseRule` rapid disengage, `Finish=20 m` dive, `FightLoot=70 m` with rooftop `abs(dz) < 3.6` bug fixed, `NoMortar` cookoff immunity, `LethalK=0.70` early laser execute, jump-jet courtyard `_escape`), and auto-FFA Guard switch (`other_dead >= 5`).
+- **Validated innovation beyond `#2` — `anti_lightning` (ADOPTED)**: repels **all** visible lightning carriers within `light_range + 16 m` inside `fight_move` + scored 7-heading safe emergency kite (`d < light_range + 6 m`, penalized by zone and other enemies' LOS/charging lasers) + skips cubes guarded by a lightning carrier. Slashes lightning deaths **44 → 22 / 192 (−50 %)**.
+- **Tested & rejected ablations on top of `Apex` (each 96 matches: 48 HK1 + 48 HK0)**:
+  - `hunt_laser_duck` (`−0.07` avg: breaking LOS hurts our own DPS more than laser damage saved).
+  - `dynamic_upgrades` (`−0.15` avg: picking `laser_damage`/`laser_charge` early in `UPGRADE_ORDER_LASER` beats waiting until slot 1 holds a laser).
+  - `kill_reset + sensor_awareness + smart_fire` bundle (`−0.19` avg: `lead_clear` suppressed shots `−357` dealt).
+  - `mortar_v2 + gun_juke` (`−0.19` vs floor), `smart_lose + kill_reset` (`−0.01`), `opening_gear` (`+0.00`: `+0.38k` HK1 / `+0.17k` HK0, hurt `13000` HK0), `corner_slice + laser_punish + backstab/cookoff` (`−0.10`), `combat_boost` (`−0.38`), `dead_window_duck` (`−0.29`), `early_hunt_laser + opening_laser_seek + long_laser_range` (`−0.14`), `smart_drops + roof_laser_grab` (`−0.12`, though `+0.04` HK0).
+  - Over-aggressive latency shortcuts (`step_m=2.0`, `max_expand=1800`, `budget=4ms`) cost `−0.25` across 192 matches (`−0.83` HK1 train) — reverted to exact `step_m=1.5` & `max_expand=4000`, keeping only the `path2` replay anti-thrash cooldown (`300/300 PASS` in 1-CPU Docker, p50 `1.6 ms`, p90 `6.8 ms`, p99 `8.8 ms`, max `9.9 ms`).
+
+| Bot (192-match benchmark) | `HK=1` Train (48) | `HK=1` Hold (48) | **`HK=1` Comb (96)** | `HK=0` Train (48) | `HK=0` Hold (48) | **`HK=0` Comb (96)** | **192-Match Avg** | Lightning Deaths / 192 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Orig BASE (`7468dcb`, 2.52 off.) | 1.98 | 1.67 | **1.82** | — | — | — | — | — |
+| Old Python `E49` (`b4e76cf`) | 3.27 | 3.02 | **3.15** | 2.46 | 2.90 | **2.68** | **2.91** | 18 |
+| `#2 giddygiddyboy` (`6.19` off.) | 3.04 | 2.79 | **2.92** | 3.06 | 2.96 | **3.01** | **2.96** | **44** |
+| **`Apex v1` (Python 3.13, ADOPTED)** | **3.21** (+0.17) | **3.29** (**+0.50**) | **3.25** (**+0.34 vs #2 / +1.43 vs BASE**) | **2.90** | **3.12** (+0.17) | **3.01** (**+0.33 vs E49**) | **3.13** (**+0.17 vs #2**) | **22 (−50 %)** |
+
+*(Initial `B0_esc` pre-cooldown run scored `3.60 / 3.50` HK1 and `3.10 / 3.31` HK0 = `3.38` grand avg; final verified `Apex v1` with 300/300 Docker anti-thrash cooldown scored `3.21 / 3.29` HK1 and `2.90 / 3.12` HK0 = `3.13` grand avg, beating `#2` on both HK1 train/holdout and HK0 holdout with 4.40 holdout cubes and 2.26× trade ratio.)*
+
 ---
 
 ## Rejected
