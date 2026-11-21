@@ -169,6 +169,16 @@ DEFAULT = {
     # --- adaptive / final generalisation --------------------------------
     "adapt": True,                # modulate policy by observed opponent pressure
     "ffa_mode": False,            # simulator-only: opponents are independent, not a squad
+    # --- combat engine v2 (E41) -----------------------------------------
+    "combat_v2": False,           # duel commitment, dual-wielding, weapon-aware range, flipping strafe
+    "v2_kite_hp": 0.42,           # retreat HP threshold when not finishing a kill
+    "v2_multi_kite_hp": 0.72,     # retreat HP threshold when 2+ enemies have direct LOS
+    "v2_finish_hp": 420.0,        # commit to kill below this target HP
+    "v2_kite_hold_s": 3.5,        # shorter disengage commitment
+    "v2_poke_max_r": 95.0,        # don't poke idle full-HP bystanders beyond this (gun)
+    "v2_laser_poke_r": 150.0,     # ...or this with laser
+    "v2_flip_min_s": 0.65,        # strafe direction flip interval min
+    "v2_flip_max_s": 1.05,        # strafe direction flip interval max
 }
 
 

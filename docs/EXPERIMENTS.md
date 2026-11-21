@@ -271,6 +271,33 @@ Reading:
 
 ---
 
+## Round 3 — structural mechanism search
+
+### E41 — Combat engine v2 (dual-wielding, laser/lightning mastery, flipping strafe, proactive reload)
+Added `combat_v2` behind a flag (default `False`) plus crash-safe `Bot.act` wrapper:
+aligned-only gun firing, gun+lightning shared-pitch dual-wielding, full/lethal laser
+release with 0.65 s LOS-flicker hold guard, flipping strafe, weapon-aware duel range
+(stay outside enemy lightning, close inside ours), proactive between-fight reload,
+and anti-aggro poke range limit.
+
+- **E41a** (`v2_poke_max_r=95`, `v2_kite_hp=0.42`, `weapon_pref=[lightning,laser,mortar,gun]`, train n=48):
+  score **1.58** vs 1.98 (**−0.40 ± 0.28**), kills 1.12 vs 1.25 (−0.12), death 64.3 s vs 74.7 s (−10.4 s),
+  dealt 2,274 vs 2,896 (−622), acc **91.4 %** vs 82.5 %, dmg/kill 2,021 vs 2,317.
+  Per-range: `8000:+0.12 / 11000:−1.19 / 13000:−0.12`.
+  Diagnosis: the 95 m poke cap let the active hunter shoot us from 100–175 m uncontested.
+- **E41b** (removed poke cap `175 m`, restored `v2_kite_hp=0.75`, train n=48):
+  score **1.83** vs 1.98 (**−0.15 ± 0.28**), kills **1.31** vs 1.25 (+0.06), death 58.0 s vs 74.7 s (−16.7 s),
+  dealt 2,699 vs 2,896, acc **87.9 %** vs 82.5 %, dmg/kill **2,057** vs 2,317, laser deaths 13 → 6,
+  lightning deaths 10 → 7, gun deaths 19 → 29.
+  Per-range: `8000:+0.38 (+0.50k) / 11000:−1.00 (−0.75k) / 13000:+0.19 (+0.44k)`.
+
+**Verdict:** Weapons/accuracy/conversion improved cleanly (+5.4 % acc, −260 dmg/kill,
++35 % kills/sec, half the laser deaths), but open-ground strafing duels trade −16.7 s
+of survival for no net score gain. Effective HP (~1,700) and cubes (~0.5) remain the
+binding ceiling. Kept behind `combat_v2: False` for reuse with cover/rooftop mechanisms.
+
+---
+
 ## Rejected
 
 | # | Change | Result |

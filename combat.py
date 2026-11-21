@@ -197,6 +197,9 @@ class Combat:
         self.lightning_shots = 0
         self.focus_enabled = bool(self.p.get("focus_fire", True))
         self.focus_switch_margin = _num(self.p.get("focus_switch_margin"), 55.0)
+        self.laser_no_tgt_s = 0.0
+        self.dmg_per_cube = _num(cubes.get("damage_per_cube"), 0.04)
+        self.cube_stat_cap = int(_num(cubes.get("stat_cap"), 10))
 
     # ------------------------------------------------------------------ shared
     def _pitch_limits(self, me):
@@ -213,7 +216,7 @@ class Combat:
     def _future(self, me, yaw, pitch):
         return future_aim(me, yaw, pitch, self.dt)
 
-    def pick_target(self, me, enemies, max_range):
+    def pick_target(self, me, enemies, max_range, t=None):
         """Choose who to shoot, with hysteresis so damage is not spread.
 
         Re-picking by distance every decision scatters fire across the squad:
@@ -221,14 +224,22 @@ class Combat:
         wasted on bots that never died.  Keep hitting the same target until it
         dies, leaves line of sight, or something much better appears.
         """
+        v2 = bool(self.p.get("combat_v2", False))
         px, py = me["pos"][0], me["pos"][1]
         src = muzzle(me)
+        weapons = me.get("weapons") or []
+        w1 = weapons[1] if len(weapons) > 1 else None
+        w1_kind = w1.get("kind") if w1 else None
+        light_r = _num((w1 or {}).get("stats", {}).get("range"), 45.0) if w1_kind == "lightning" else 0.0
         best = None
         best_score = 1e30
+        best_lethal = False
         focus = self.focus_id
         focus_score = None
         focus_target = None
+        focus_lethal = False
         n_range = n_los = n_ok = 0
+        poke_lim = self.p.get("v2_laser_poke_r", 150.0) if w1_kind == "laser" else self.p.get("v2_poke_max_r", 95.0)
         for e in enemies:
             if e.get("pos") is None:
                 continue
@@ -238,26 +249,52 @@ class Combat:
                 continue
             tc = self._center(e)
             if not self.w.shot_clear(src, tc):
-                # A mortar arcs over terrain, so a target we cannot shoot
-                # directly is still a target.  Requiring direct line of sight
-                # here threw away the 44% of decisions where the squad was
-                # visible but blocked, which is exactly the mortar's job.
                 if not (self.has_mortar and self.indirect_ok and 30.0 < d < 210.0):
                     n_los += 1
                     continue
-            n_ok += 1
             hp = e.get("hp")
             hp_conf = e.get("hp_conf", 1.0 if hp is not None else 0.0)
+            mx = _num(e.get("max_hp"), self.base_hp)
+            hp_frac = clamp(_num(hp, mx) / max(1.0, mx), 0.0, 1.0) if (hp is not None and hp_conf > 0.0) else 1.0
+            last_atk = e.get("last_attack_t")
+            active_atk = (last_atk is not None and t is not None and t - last_atk < 10.0)
+            if v2:
+                # Anti-aggro discipline: don't poke an idle full-HP bystander far away
+                # (waking extra house bots into the fight). Always shoot attackers,
+                # wounded enemies, close threats, or targets inside our effective range.
+                wounded = (hp is not None and hp_conf > 0.0 and hp_frac < 0.85)
+                if d > poke_lim and not active_atk and not wounded:
+                    n_range += 1
+                    continue
+            n_ok += 1
             score = d
-            if hp is not None and hp_conf > 0.0:
-                mx = _num(e.get("max_hp"), self.base_hp)
-                score -= 45.0 * hp_conf * (1.0 - clamp(_num(hp) / max(1.0, mx), 0.0, 1.0))
+            lethal = False
+            if v2:
+                if hp is not None and hp_conf > 0.0:
+                    score -= 110.0 * hp_conf * (1.0 - hp_frac)
+                    if _num(hp) <= self.p.get("v2_finish_hp", 420.0):
+                        score -= 75.0
+                        lethal = True
+                if active_atk:
+                    score -= 45.0
+                ew = e.get("weapons") or []
+                if w1_kind == "lightning" and d < light_r - 1.0:
+                    score -= 38.0
+                    if e.get("charging"):
+                        score -= 35.0
+                elif w1_kind == "laser" and "mortar" in ew:
+                    score -= 35.0
+            else:
+                if hp is not None and hp_conf > 0.0:
+                    score -= 45.0 * hp_conf * (1.0 - hp_frac)
             if focus is not None and e.get("id") == focus:
-                focus_score, focus_target = score, e
+                focus_score, focus_target, focus_lethal = score, e, lethal
             if score < best_score:
                 best_score = score
                 best = e
+                best_lethal = lethal
         if (focus_target is not None and self.focus_enabled
+                and not (v2 and best_lethal and not focus_lethal)
                 and best_score > focus_score - self.focus_switch_margin):
             best = focus_target
         self.focus_id = best.get("id") if best is not None else None
@@ -385,13 +422,24 @@ class Combat:
                      allow_charge=None):
         """One final torso aim; each slot fires only if compatible with it."""
         p = params
+        v2 = bool(p.get("combat_v2", False))
         weapons = me["weapons"]
         src = muzzle(me)
         self.has_mortar = any(w and w.get("kind") == "mortar" for w in weapons)
-        target = self.pick_target(me, enemies, p["fire_max_range"])
+        t_now = _num(obs.get("t"), 0.0)
+        target = self.pick_target(me, enemies, p["fire_max_range"], t=t_now)
         self.last_had_target = target is not None
+        w1 = weapons[1] if len(weapons) > 1 else None
         if target is None:
+            # In v2, don't accidentally dump an active laser charge into a wall
+            # just because LOS briefly flickered off for a few ticks.
+            if v2 and w1 and w1.get("kind") == "laser" and _num(w1.get("charge"), 0.0) > 0.0:
+                self.laser_no_tgt_s += self.dt
+                if self.laser_no_tgt_s <= 0.65:
+                    return None, [False, True], False
+            self.laser_no_tgt_s = 0.0
             return None, [False, False], False
+        self.laser_no_tgt_s = 0.0
 
         tc = self._center(target)
         tv = target.get("vel", [0.0, 0.0, 0.0])
@@ -399,21 +447,10 @@ class Combat:
         min_pitch, max_pitch = self._pitch_limits(me)
         dt = self.dt
         fire_gate = bool(allow_fire and p["fire_enabled"])
-        # The gate historically only scaled candidate *utility*, while the weapon
-        # branches passed a literal fire=True.  A zero-utility candidate can still
-        # win the argmax (all utilities zero), so the gate never actually
-        # suppressed a shot: our "never fire" control still dealt 2600 damage.
-        # With fire_gate_strict the permission bit is propagated into the fire
-        # flag itself, which is what every hold-fire policy needs.
-        strict = bool(p.get("fire_gate_strict", False))
-        # Charging the laser is not the same decision as firing it: a charge
-        # takes 0.75 s, and gating it behind permission-to-fire meant the
-        # 315-damage weapon almost never charged (fire_gate is true in ~5% of
-        # decisions).  Charge whenever we expect to shoot; release still needs
-        # the gate and a good alignment.
+        strict = bool(p.get("fire_gate_strict", False)) or v2
         charge_ok = bool((allow_fire if allow_charge is None else allow_charge)
                          and p["fire_enabled"])
-        if not p.get("laser_precharge", True):
+        if not p.get("laser_precharge", True) and not v2:
             charge_ok = fire_gate
         self.last_gate = fire_gate
         candidates = []
@@ -428,10 +465,12 @@ class Combat:
 
         # --- slot 0: gun ---------------------------------------------------
         w0 = weapons[0] if weapons else None
+        gun_aim = None
         if w0 and w0["kind"] == "gun":
             st = w0["stats"]
             pt, _ = intercept(src, tc, tv, st["speed"])
             yaw, pitch = aim_to(src, pt)
+            gun_aim = (yaw, clamp(pitch, min_pitch, max_pitch))
             fy, fp = self._future(me, yaw, pitch)
             err = shot_error(src, pt, fy, fp)
             spread = math.radians(_num(st.get("spread_deg"), 0.6)) * math.dist(src, pt)
@@ -441,54 +480,102 @@ class Combat:
                      and w0.get("cooldown", 0) <= 0.05
                      and math.dist(src, pt) < _num(st.get("range"), 230.0))
             gate = fire_gate and ready
+            can_shoot = gate and (hit_prob > 0.05 if v2 else True)
             add(0, "gun", (yaw, pitch), pt, tol,
                 _num(st.get("damage"), 45.0) * hit_prob if gate else 0.0,
-                (gate if strict else True), gate and hit_prob > 0.05)
+                (can_shoot if strict else True), gate and hit_prob > 0.05)
 
         # --- slot 1: laser / lightning / mortar ----------------------------
-        w1 = weapons[1] if len(weapons) > 1 else None
         if w1:
             kind = w1["kind"]
             st = w1["stats"]
             if kind == "laser":
                 charge = _num(w1.get("charge"), 0.0)
                 full = max(1e-3, _num(st.get("charge"), 0.75))
-                min_charge = max(p["laser_min_charge"], _num(st.get("min_charge"), 0.15))
+                min_charge = _num(st.get("min_charge"), 0.15)
                 pt = (tc[0] + tv[0] * dt, tc[1] + tv[1] * dt, tc[2] + tv[2] * dt)
                 yaw, pitch = aim_to(src, pt)
                 fy, fp = self._future(me, yaw, pitch)
                 err = shot_error(src, pt, fy, fp)
-                aligned = err < tr * 1.15 and math.dist(src, pt) < _num(st.get("range"), 280.0)
-                frac = (_num(st.get("min_frac"), 0.35)
-                        + (1.0 - _num(st.get("min_frac"), 0.35)) * min(1.0, charge / full))
+                lrange = _num(st.get("range"), 280.0)
+                dist_pt = math.dist(src, pt)
+                aligned = err < tr * 1.15 and dist_pt < lrange
+                min_frac = _num(st.get("min_frac"), 0.35)
+                frac = min_frac + (1.0 - min_frac) * min(1.0, charge / full)
                 dmg = _num(st.get("damage"), 315.0)
-                if charge >= min_charge:
-                    gate = fire_gate and aligned and w1.get("cooldown", 0) <= 0.05
-                    utility = dmg * frac * (1.0 if aligned else 0.25)
-                    # Release means fire[1]=False; holding means fire[1]=True.
-                    add(1, "laser", (yaw, pitch), pt, tr * 1.15,
-                        utility if gate else utility * 0.5,
-                        not gate, gate, hold=not gate)
-                elif (charge < full and w1.get("cooldown", 0) <= 0.05
-                        and charge_ok and err < tr * 3.0
-                        and math.dist(src, pt) < _num(st.get("range"), 280.0)):
-                    add(1, "laser", (yaw, pitch), pt, tr * 1.15,
-                        dmg * 0.25 * (charge / full), True, False, hold=True)
+                if v2:
+                    dmg_mult = 1.0 + self.dmg_per_cube * min(int(me.get("cubes", 0)), self.cube_stat_cap)
+                    cook = _num(st.get("cookoff"), 0.6) if "mortar" in (target.get("weapons") or []) else 0.0
+                    cur_dmg = dmg * frac * (1.0 + cook) * dmg_mult
+                    tgt_hp = target.get("hp")
+                    lethal = (tgt_hp is not None and charge >= min_charge and cur_dmg >= _num(tgt_hp) * 1.05)
+                    full_ready = charge >= full - 0.06
+                    want_release = full_ready or lethal
+                    # Don't slow ourselves 50% by starting a laser charge in enemy lightning range
+                    near_light = any(
+                        "lightning" in (e.get("weapons") or [])
+                        and math.hypot(e["pos"][0] - me["pos"][0], e["pos"][1] - me["pos"][1]) < 52.0
+                        for e in enemies if e.get("pos") is not None
+                    )
+                    if charge > 0.0 and want_release:
+                        gate = fire_gate and aligned and w1.get("cooldown", 0) <= 0.05
+                        if gate:
+                            add(1, "laser", (yaw, pitch), pt, tr * 1.15,
+                                cur_dmg * 1.6, False, True, hold=False)
+                        else:
+                            # Hold charge while snapping torso onto target for next tick
+                            add(1, "laser", (yaw, pitch), pt, tr * 1.15,
+                                cur_dmg * 1.1 if fire_gate else 5.0, True, False, hold=True)
+                    elif charge > 0.0:
+                        # Keep charging while gun owns torso aim and keeps shooting!
+                        add(1, "laser", (yaw, pitch), pt, tr * 1.15,
+                            2.0, True, False, hold=True)
+                    elif (w1.get("cooldown", 0) <= 0.05 and fire_gate and not near_light
+                            and dist_pt < lrange):
+                        # Start charging simultaneously with gun fire
+                        add(1, "laser", (yaw, pitch), pt, tr * 1.15,
+                            1.0, True, False, hold=True)
+                else:
+                    min_c = max(p["laser_min_charge"], min_charge)
+                    if charge >= min_c:
+                        gate = fire_gate and aligned and w1.get("cooldown", 0) <= 0.05
+                        utility = dmg * frac * (1.0 if aligned else 0.25)
+                        add(1, "laser", (yaw, pitch), pt, tr * 1.15,
+                            utility if gate else utility * 0.5,
+                            not gate, gate, hold=not gate)
+                    elif (charge < full and w1.get("cooldown", 0) <= 0.05
+                            and charge_ok and err < tr * 3.0
+                            and dist_pt < lrange):
+                        add(1, "laser", (yaw, pitch), pt, tr * 1.15,
+                            dmg * 0.25 * (charge / full), True, False, hold=True)
             elif kind == "lightning":
                 cone = math.radians(_num(st.get("cone_deg"), 30.0)) * 0.5
                 d = math.dist(src, tc)
+                d_flat = math.hypot(tc[0] - me["pos"][0], tc[1] - me["pos"][1])
                 yaw = math.atan2(tc[1] - src[1], tc[0] - src[0])
                 pitch = clamp(0.0, min_pitch, max_pitch)
-                fy, _ = self._future(me, yaw, pitch)
+                if v2 and gun_aim is not None and abs(wrap(gun_aim[0] - yaw)) <= cone * 0.85:
+                    # Share gun's exact torso aim so gun + lightning fire simultaneously!
+                    aim_l = gun_aim
+                else:
+                    aim_l = (yaw, pitch)
+                fy, _ = self._future(me, aim_l[0], aim_l[1])
                 yaw_err = abs(wrap(fy - yaw))
                 hit_prob = clamp(1.0 - yaw_err / max(1e-3, cone), 0.0, 1.0)
-                ready = (d < _num(st.get("range"), 45.0)
-                         and me["energy"] > p["lightning_energy_floor"]
+                lrange = _num(st.get("range"), 45.0)
+                e_cost = _num(st.get("energy"), 3.0)
+                tgt_hp = target.get("hp")
+                e_floor = (max(e_cost, 4.0) if (v2 and tgt_hp is not None and _num(tgt_hp) <= 450.0)
+                           else max(e_cost, p["lightning_energy_floor"]))
+                ready = ((d_flat if v2 else d) < lrange - (0.4 if v2 else 0.0)
+                         and me["energy"] >= e_floor
                          and w1.get("cooldown", 0) <= 0.05)
                 gate = fire_gate and ready
-                utility = _num(st.get("damage"), 60.0) * hit_prob - _num(st.get("energy"), 3.0) * 2.0
-                add(1, "lightning", (yaw, pitch), tc, d * math.tan(cone) + tr,
-                    utility if gate else 0.0, (gate if strict else True),
+                utility = (_num(st.get("damage"), 60.0) * (1.45 if v2 else 1.0) * hit_prob
+                           - e_cost * (1.0 if v2 else 2.0))
+                can_fire = gate and (hit_prob > 0.05 if v2 else True)
+                add(1, "lightning", aim_l, tc, d * math.tan(cone) + tr,
+                    utility if gate else 0.0, (can_fire if strict else True),
                     gate and hit_prob > 0.1, cone=cone)
             elif kind == "mortar":
                 v = _num(st.get("speed"), 72.0)

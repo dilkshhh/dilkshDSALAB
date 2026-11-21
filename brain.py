@@ -93,6 +93,11 @@ class Brain:
         self.kite_until = -1.0
         self._break_dir = None
         self._break_t = -1e9
+        self.strafe_sign = 1.0
+        self.strafe_flip_t = 0.0
+        wcfg = cfg.get("weapons", {}) or {}
+        self.cfg_light_range = float((wcfg.get("lightning") or {}).get("range", 45.0))
+        self.cfg_gun_mag = int((wcfg.get("gun") or {}).get("mag", 12))
 
     # ------------------------------------------------------------------ state
     def _break_heading(self, x, y, z, visible, t):
@@ -351,15 +356,39 @@ class Brain:
         # Close on the nearest known enemy and finish it.  This is the opposite
         # of the survival-first default, kept behind a switch because the
         # simulator's squad punishes it while the real squad may not.
+        v2 = bool(p.get("combat_v2", False))
+        w1 = me["weapons"][1] if len(me.get("weapons") or []) > 1 else None
+        w1_kind = w1.get("kind") if w1 else None
+        my_light_r = float((w1 or {}).get("stats", {}).get("range", self.cfg_light_range)) if w1_kind == "lightning" else 0.0
         hunting = False
-        hunt_hp = p["hunt_hp"] * (0.6 if self.press else 1.0)
+        duel_tgt = None
+        duel_want = p["hunt_standoff"]
+        duel_los = False
+        tgt_has_light = False
+        los_threats = 0
+        if v2 and visible:
+            my_muzzle = (x, y, z + me.get("stats", {}).get("muzzle_height", self.world.muzzle_height))
+            for e in visible:
+                ed0 = math.hypot(e["pos"][0] - x, e["pos"][1] - y)
+                if ed0 < 165.0 and self.world.shot_clear(my_muzzle, target_center(e, self.world.size_per_cube, self.world.height, p["aim_height_frac"])):
+                    los_threats += 1
+
+        hunt_hp = (0.20 if v2 else p["hunt_hp"]) * (0.6 if self.press else 1.0)
         if (p["hunt_enabled"] and not emergency and not self.disengage
                 and hp_frac > hunt_hp
                 and t < p["hunt_until"] and not (t < self.flee_until)):
             cand = [e for e in visible
                     if math.hypot(e["pos"][0] - x, e["pos"][1] - y) < p["hunt_range"]]
             if cand:
-                if p["hunt_target"] == "weak":
+                if v2:
+                    def rank(q):
+                        hp = q.get("hp")
+                        frac = (hp / max(1.0, q.get("max_hp") or 1400.0)
+                                if hp is not None else 1.0)
+                        atk = 0 if (q.get("last_attack_t") is not None and t - q["last_attack_t"] < 8.0) else 1
+                        fin = 0 if (hp is not None and hp <= p["v2_finish_hp"]) else 1
+                        return (fin, atk, frac, math.hypot(q["pos"][0] - x, q["pos"][1] - y))
+                elif p["hunt_target"] == "weak":
                     # finish the wounded instead of opening a new front
                     def rank(q):
                         hp = q.get("hp")
@@ -370,8 +399,26 @@ class Brain:
                     def rank(q):
                         return (0.0, math.hypot(q["pos"][0] - x, q["pos"][1] - y))
                 e = min(cand, key=rank)
+                duel_tgt = e
                 ed = math.hypot(e["pos"][0] - x, e["pos"][1] - y)
-                if ed > p["hunt_standoff"]:
+                if v2:
+                    ew = e.get("weapons") or []
+                    tgt_has_light = "lightning" in ew
+                    ehp = e.get("hp") or 1400.0
+                    if w1_kind == "lightning" and me.get("energy", 0) > 15 and (not tgt_has_light or me["hp"] >= ehp * 0.8):
+                        duel_want = min(30.0, my_light_r * 0.68)
+                    elif tgt_has_light:
+                        duel_want = max(58.0, self.cfg_light_range + 15.0)
+                    elif w1_kind == "laser":
+                        duel_want = 82.0
+                    else:
+                        duel_want = 52.0
+                    my_muzzle = (x, y, z + me.get("stats", {}).get("muzzle_height", self.world.muzzle_height))
+                    duel_los = self.world.shot_clear(my_muzzle, target_center(e, self.world.size_per_cube, self.world.height, p["aim_height_frac"]))
+                    if ed > duel_want or not duel_los:
+                        goal, goal_kind = (e["pos"][0], e["pos"][1]), "hunt"
+                        hunting = True
+                elif ed > p["hunt_standoff"]:
                     goal, goal_kind = (e["pos"][0], e["pos"][1]), "hunt"
                     hunting = True
 
@@ -415,7 +462,36 @@ class Brain:
         # go quiet again; they arrive at a position we have already left.
         kiting = False
         recent_hits = [d for d in self.damage_bearings if t - d[1] < 3.0]
-        if (p["kite_enabled"] and not emergency and not (t < self.flee_until)
+        if v2:
+            finishing = (duel_tgt is not None
+                         and (duel_tgt.get("hp") or 1400.0) <= p["v2_finish_hp"]
+                         and hp_frac > 0.22 and duel_los)
+            light_danger = (tgt_has_light and w1_kind != "lightning"
+                            and mclose < self.cfg_light_range + 6.0)
+            want_kite = (
+                p["kite_enabled"] and not emergency and not (t < self.flee_until)
+                and not finishing
+                and (
+                    light_danger
+                    or (recent_hits and hp_frac < p["v2_kite_hp"])
+                    or (recent_hits and los_threats >= 2 and hp_frac < p["v2_multi_kite_hp"])
+                    or self.disengage
+                )
+            )
+            if want_kite:
+                if recent_hits:
+                    vx = -sum(math.cos(d[0]) * (1.0 + min(d[2], 200.0) / 200.0) for d in recent_hits)
+                    vy = -sum(math.sin(d[0]) * (1.0 + min(d[2], 200.0) / 200.0) for d in recent_hits)
+                elif duel_tgt is not None:
+                    vx, vy = x - duel_tgt["pos"][0], y - duel_tgt["pos"][1]
+                else:
+                    vx, vy = 1.0, 0.0
+                vd = math.hypot(vx, vy) or 1.0
+                self.kite_dir = (vx / vd, vy / vd)
+                self.kite_until = t + (1.4 if light_danger and hp_frac >= p["v2_kite_hp"] else p["v2_kite_hold_s"])
+            elif finishing:
+                self.kite_until = -1.0
+        elif (p["kite_enabled"] and not emergency and not (t < self.flee_until)
                 and recent_hits
                 and (mclose < p["kite_range"] or self.disengage)
                 and (hp_frac < p["kite_hp"] or len(recent_hits) >= 2
@@ -446,7 +522,7 @@ class Brain:
         elif goal_kind in ("weapon", "cube", "crate", "npc", "loot"):
             deadzone = 2.5        # get inside the 4 m pickup radius
         elif goal_kind == "hunt":
-            deadzone = max(8.0, p["hunt_standoff"])
+            deadzone = max(8.0, duel_want if v2 else p["hunt_standoff"])
         else:
             deadzone = 12.0
         at_goal = math.hypot(goal[0] - x, goal[1] - y) < deadzone
@@ -481,8 +557,29 @@ class Brain:
                 my -= ny / nd * w
 
         # strafe instead of walking straight at a shooter
+        duel_boost = False
         sr = p["strafe_range"]
-        if mclose < sr and visible and not emergency:
+        if v2 and duel_tgt is not None and duel_los and not emergency and not kiting and not (t < self.flee_until):
+            ex, ey = duel_tgt["pos"][0] - x, duel_tgt["pos"][1] - y
+            ed = max(0.01, math.hypot(ex, ey))
+            ux, uy = ex / ed, ey / ed
+            if t >= self.strafe_flip_t:
+                self.strafe_sign = -self.strafe_sign
+                self.strafe_flip_t = t + self.rng.uniform(p["v2_flip_min_s"], p["v2_flip_max_s"])
+            sx, sy = -uy * self.strafe_sign, ux * self.strafe_sign
+            if not self.world.walk_clear(x, y, x + sx * 6.0, y + sy * 6.0, z):
+                self.strafe_sign = -self.strafe_sign
+                sx, sy = -sx, -sy
+                self.strafe_flip_t = t + 0.7
+            radial = clamp((ed - duel_want) / 16.0, -1.0, 1.0)
+            mx = ux * radial + sx * 0.92 + dvx * 1.1 + lvx * 1.2
+            my = uy * radial + sy * 0.92 + dvy * 1.1 + lvy * 1.2
+            # Boost in to close with lightning, or boost back out of enemy lightning
+            if w1_kind == "lightning" and ed > my_light_r - 2.0 and ed < 85.0 and me.get("energy", 0) > 40:
+                duel_boost = True
+            elif tgt_has_light and w1_kind != "lightning" and ed < self.cfg_light_range + 10.0 and me.get("energy", 0) > 20:
+                duel_boost = True
+        elif mclose < sr and visible and not emergency:
             e = min(visible, key=lambda q: math.hypot(q["pos"][0] - x, q["pos"][1] - y))
             ex, ey = e["pos"][0] - x, e["pos"][1] - y
             ed = max(0.01, math.hypot(ex, ey))
@@ -551,7 +648,7 @@ class Brain:
         # NPC drones move at 5 m/s; a quiet 4.85 m/s walk cannot break aggro.
         # Sprint out of their leash instead of eating 25 damage every second.
         npc_aggro = npc_close < 38.0 and (self.recent_damage > 0.05 or escaping)
-        if (escaping or npc_aggro or kiting) and me.get("energy", 0) > 25:
+        if (escaping or npc_aggro or kiting or duel_boost) and me.get("energy", 0) > 25:
             boost = True
         if boost:
             speed_scale = 1.0
@@ -561,30 +658,30 @@ class Brain:
             boost = False
 
         # ---- firing gate -------------------------------------------------
-        cornered = mclose < 32.0 and hp_frac > p["hp_floor"]
-        engage_dist = p["engage_range"] * p["aggression"] / adapt
-        if t > p["late_survival_t"]:
-            engage_dist = min(engage_dist, 38.0)
-        allow_fire = (p["fire_enabled"] and not emergency and hp_frac > p["hp_floor"]
-                      and (not covered or cornered)
-                      and (mclose < engage_dist or cornered)
-                      and (self.recent_damage > 0.2 or mclose < 40.0 or p["aggression"] > 0.6))
-        # Reciprocal fire.  Holding fire buys silence only while nobody has
-        # found us; once a visible enemy is inside gun range and landing
-        # damage, kiting alone cannot outrun bullets and refusing to trade is
-        # strictly worse than shooting back.  This is the difference between
-        # dying with a full magazine and dying with an empty one.
-        if (p["recip_fire"] and not allow_fire and not emergency
-                and not covered and hp_frac > p["recip_fire_hp"]
-                and self.recent_damage > 0.05
-                and t - self.last_damage_t < p["recip_fire_window_s"]):
-            rng = max(40.0, p["engage_range"])
-            ey = z + me.get("stats", {}).get("muzzle_height", self.world.muzzle_height)
-            for e in visible:
-                if (math.hypot(e["pos"][0] - x, e["pos"][1] - y) <= rng
-                        and self.world.shot_clear((x, y, ey), e["pos"])):
-                    allow_fire = True
-                    break
+        if v2:
+            # In v2, pick_target enforces anti-aggro discipline; allow_fire only
+            # suppresses fire when explicitly recovering/hiding or out of zone.
+            allow_fire = bool(p["fire_enabled"] and not covered)
+        else:
+            cornered = mclose < 32.0 and hp_frac > p["hp_floor"]
+            engage_dist = p["engage_range"] * p["aggression"] / adapt
+            if t > p["late_survival_t"]:
+                engage_dist = min(engage_dist, 38.0)
+            allow_fire = (p["fire_enabled"] and not emergency and hp_frac > p["hp_floor"]
+                          and (not covered or cornered)
+                          and (mclose < engage_dist or cornered)
+                          and (self.recent_damage > 0.2 or mclose < 40.0 or p["aggression"] > 0.6))
+            if (p["recip_fire"] and not allow_fire and not emergency
+                    and not covered and hp_frac > p["recip_fire_hp"]
+                    and self.recent_damage > 0.05
+                    and t - self.last_damage_t < p["recip_fire_window_s"]):
+                rng = max(40.0, p["engage_range"])
+                ey = z + me.get("stats", {}).get("muzzle_height", self.world.muzzle_height)
+                for e in visible:
+                    if (math.hypot(e["pos"][0] - x, e["pos"][1] - y) <= rng
+                            and self.world.shot_clear((x, y, ey), e["pos"])):
+                        allow_fire = True
+                        break
         # crate / NPC farming is opt-in and only when nothing else is happening
         combat_targets = list(visible)
         farm = False
@@ -654,10 +751,13 @@ class Brain:
         # unstick / climb: jump if we have been wedged for a while
         if self.stuck_t > 1.4 and me.get("grounded"):
             act["jump"] = True
-        # reload early when the magazine is dry and no target is in sight
+        # reload early when the magazine is dry, or proactively between fights in v2
         w0 = me["weapons"][0] if me["weapons"] else None
-        if w0 and w0.get("kind") == "gun" and w0.get("ammo", 12) == 0 and w0.get("reload", 0) == 0:
-            act["reload"] = True
+        if w0 and w0.get("kind") == "gun" and w0.get("reload", 0) == 0:
+            mag = int(w0.get("stats", {}).get("mag", self.cfg_gun_mag))
+            ammo = int(w0.get("ammo", mag))
+            if ammo == 0 or (v2 and not self.combat.last_had_target and ammo <= max(6, mag - 4)):
+                act["reload"] = True
         # upgrade offer
         pick = pick_upgrade(obs.get("offer"), p, me, self.cfg)
         if pick is not None:

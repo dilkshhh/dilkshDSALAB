@@ -10,7 +10,19 @@ class Bot:
         self.brain = Brain(hello)
 
     def act(self, obs: mf.Observation) -> mf.Action:
-        return self.brain.act(obs)
+        try:
+            return self.brain.act(obs)
+        except Exception as exc:
+            import sys
+            print(f"act error: {exc}", file=sys.stderr, flush=True)
+            me = obs.get("self") or {}
+            aim = me.get("aim") or [0.0, 0.0]
+            return {
+                "move": [0.0, 0.0],
+                "boost": False,
+                "aim": [float(aim[0]), float(aim[1])],
+                "fire": [False, False],
+            }
 
 
 mf.run(Bot)
