@@ -72,16 +72,16 @@ Tracked (21 files, 2.0 MB total; image context is a subset via `.dockerignore`):
 
 | # | Defect | Evidence | Impact |
 | --- | --- | --- | --- |
-| D1 | **Server-tracked positions are dead-reckoned.** `_threats()` adds `vel * min(age,2)` to *every* enemy record, contradicting §8's real-current-position guarantee | `brain.py:_threats` | Wrong threat geometry, bad cover/kite decisions |
-| D2 | **Sound bearings are turned into exact points** (55/135/210 m) with no σ or interval model; `step`, `boost`, `jet`, `reload`, `npc_gun`, `crate`, `drop` are discarded | `brain.py:_update` | False precision, lost information |
-| D3 | **Two weapon slots can command conflicting aims.** `aim_cmd` is set by slot 0; slot 1 computes its own yaw/pitch and can fire while the commanded torso aim is still slot 0's | `combat.py:act` (gun/laser/lightning/mortar branches) | Missed shots; violates single-torso-aim constraint (§7) |
-| D4 | **Upgrade ranking is hand-assigned** and never reads `hello.config.upgrades` effects | `econ.py:upgrade_value` | Suboptimal or illegal choices under balance changes |
-| D5 | **Hardcoded geometry**: radius 2.5, height 9, eye 8, muzzle 7, `step_up` 1.2, pitch clamps ±0.7/1.3, turn/pitch rates, `walk_speed`, `step_speed` fallbacks | `world.py`, `nav.py`, `combat.py`, `brain.py` | Wrong after cube size scaling or config changes |
-| D6 | **Unused observation channels**: `alive`, `beams`, `in_zone`, `rear`, `by`, `hit`, `effect`, `kill`, `took`, `take_failed`, `drops.progress`, `drops.capture_s`, `sounds.age` | source scan | No kill confirmation, no third-party data, no regen-timer awareness |
-| D7 | **Unused parameters**: `retreat_hp`, `pressure_hide`, `mortar_self_safe`, `stuck_speed`, `ffa_mode` | `params.py` | Dead knobs mislead A/B |
+| D1 | **FIXED (`7addbb2`)** — server-tracked positions are dead-reckoned. `_threats()` added `vel * min(age,2)` to *every* enemy record, contradicting §8's real-current-position guarantee | `brain.py:_threats` | Wrong threat geometry, bad cover/kite decisions |
+| D2 | **FIXED (`7addbb2`)** — sound bearings are turned into exact points (55/135/210 m) with no σ or interval model; `step`, `boost`, `jet`, `reload`, `npc_gun`, `crate`, `drop` are discarded | `brain.py:_update` | False precision, lost information |
+| D3 | **FIXED (`7addbb2`)** — two weapon slots can command conflicting aims. `aim_cmd` is set by slot 0; slot 1 computes its own yaw/pitch and can fire while the commanded torso aim is still slot 0's | `combat.py:act` (gun/laser/lightning/mortar branches) | Missed shots; violates single-torso-aim constraint (§7) |
+| D4 | **FIXED (`f78d3f5`)** — upgrade ranking is hand-assigned and never reads `hello.config.upgrades` effects | `econ.py:upgrade_value` | Suboptimal or illegal choices under balance changes |
+| D5 | **FIXED** — hardcoded geometry: radius 2.5, height 9, eye 8, muzzle 7, `step_up` 1.2, pitch clamps ±0.7/1.3, turn/pitch rates, `walk_speed`, `step_speed` fallbacks | `world.py`, `nav.py`, `combat.py`, `brain.py` | Wrong after cube size scaling or config changes |
+| D6 | **PARTIAL (`7addbb2`)** — unused observation channels: `alive`, `beams` (used), `in_zone`, `rear`, `by`, `hit`, `effect`, `kill`, `took`, `take_failed`, `drops.progress`, `drops.capture_s`, `sounds.age` | source scan | No kill confirmation, no third-party data, no regen-timer awareness |
+| D7 | **Unused parameters**: `retreat_hp`, `pressure_hide`, `stuck_speed`, `ffa_mode` (`mortar_self_safe` now used by the arbiter) | `params.py` | Dead knobs mislead A/B |
 | D8 | **`hello.seed` used as a directional prior** (`ZoneModel` base angle, scan base, roam sweep) even though it is slot-fixed and says nothing about the match | `brain.py`, `zone.py`, `econ.py` | Reproducibility is fine; treating it as match information would be wrong (currently not done) |
-| D9 | `vision_clear` uses hardcoded canopy density instead of `world.json` `rules.canopyDensity` / `canopyBlockT` | `world.py:vision_clear` | Inaccurate visibility estimate |
-| D10 | Mortar fires without self-splash check (`mortar_self_safe` unused) and with no moving-target lead | `combat.py` mortar branch | Self-damage, misses |
+| D9 | **FIXED** — `vision_clear` used hardcoded canopy density instead of `world.json` `rules.canopyDensity` / `canopyBlockT` | `world.py:vision_clear` | Inaccurate visibility estimate |
+| D10 | **FIXED (`7addbb2`)** — mortar fired without self-splash check (`mortar_self_safe` unused) and with no moving-target lead | `combat.py` mortar branch | Self-damage, misses |
 | D11 | `dodge_vector` is 2-D closest approach; no vertical separation / gravity / impact timing | `combat.py` | Poor mortar/laser dodging |
 | D12 | README claimed an in-repo simulator that does not exist | `README.md` | Documentation defect (fixed) |
 | D13 | `BOT_PARAMS` loader was previously *not* wired into `Brain` (it imported `DEFAULT`) — **verified fixed** in `84e97cb`: `Brain.__init__` now calls `load(params)` | `brain.py:28` | Earlier A/B claims would have been invalid; current A/B is valid |

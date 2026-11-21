@@ -39,12 +39,12 @@ class Brain:
         if not os.path.isdir(os.path.join(md, "v2")):
             md = "/arena"
         try:
-            self.world = World(md)
+            self.world = World(md, cfg=cfg)
         except Exception as exc:  # never let a missing map turn us into a sitting target
             import sys
             print("map unavailable (%s): running without arena geometry" % exc,
                   file=sys.stderr, flush=True)
-            self.world = NullWorld()
+            self.world = NullWorld(cfg)
         self.nav = Planner(self.world)
         self.zone = ZoneModel(cfg, self.seed)
         self.intel = Intel(hello, self.world, self.p)
@@ -274,13 +274,16 @@ class Brain:
                 and mclose > p["cover_min_enemy"] and t - self.last_damage_t < 20.0):
             if t - self.cover_cache_t > p["cover_cache_s"]:
                 eyes = sorted(
-                    ((e["pos"][0], e["pos"][1], e["pos"][2] + 8.0) for e in visible),
+                    ((e["pos"][0], e["pos"][1],
+                      e["pos"][2] + self.world.eye_height
+                      * size_scale(e.get("cubes", 0), self.world.size_per_cube))
+                     for e in visible),
                     key=lambda q: math.hypot(q[0] - x, q[1] - y))
                 for b, bt, amt in self.damage_bearings[-2:]:
                     tx, ty = x + math.cos(b) * 70.0, y + math.sin(b) * 70.0
-                    eyes.append((tx, ty, self.world.ground(tx, ty) + 8.0))
+                    eyes.append((tx, ty, self.world.ground(tx, ty) + self.world.eye_height))
                 if not eyes:
-                    eyes = [(q[0], q[1], self.world.ground(q[0], q[1]) + 8.0)
+                    eyes = [(q[0], q[1], self.world.ground(q[0], q[1]) + self.world.eye_height)
                             for q in threats[:2]]
                 self.cover_cache = find_cover(self.world, x, y, z, eyes,
                                               p["cover_max_r"],
@@ -445,7 +448,10 @@ class Brain:
             if p["crate_farm"]:
                 for cr in obs.get("crates", []):
                     d = math.hypot(cr["pos"][0] - x, cr["pos"][1] - y)
-                    if d < 90.0 and self.world.shot_clear((x, y, z + 7), cr["pos"]):
+                    if d < 90.0 and self.world.shot_clear(
+                            (x, y, z + me.get("stats", {}).get("muzzle_height",
+                                                               self.world.muzzle_height)),
+                            cr["pos"]):
                         combat_targets.append({"id": cr["id"], "kind": "mech",
                                                "pos": [cr["pos"][0], cr["pos"][1], cr["pos"][2] - 3.3],
                                                "vel": [0, 0, 0], "hp": cr.get("hp", 300),

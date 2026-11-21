@@ -36,17 +36,19 @@ def find_cover(world, x, y, z, threat_eyes, max_r=18.0, step=2.0,
             cx, cy = math.cos(a), math.sin(a)
             px, py = x + cx * r, y + cy * r
             pz = world.ground(px, py)
-            if pz > z + 1.2 or pz < z - 6.0:
+            if pz > z + world.step_up or pz < z - 6.0:
                 continue
             if zone_center is not None and zone_radius > 0:
                 if math.hypot(px - zone_center[0], py - zone_center[1]) > zone_radius * 0.92:
                     continue
-            if not world.walk_clear(x, y, px, py, z, radius=2.5):
+            if not world.walk_clear(x, y, px, py, z):
                 continue
             hidden = True
+            body_z = pz + 0.5 * world.height
+            eye_z = pz + world.eye_height
             for ex, ey, ez in eyes:
-                if (world.shot_clear((ex, ey, ez), (px, py, pz + 4.5), step=step)
-                        or world.shot_clear((ex, ey, ez), (px, py, pz + 8.5), step=step)):
+                if (world.shot_clear((ex, ey, ez), (px, py, body_z), step=step)
+                        or world.shot_clear((ex, ey, ez), (px, py, eye_z), step=step)):
                     hidden = False
                     break
             if not hidden:

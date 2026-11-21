@@ -243,7 +243,7 @@ def seek_goal(obs, me, params, world, threats, t, center, radius, seed):
             consider(e["pos"][0], e["pos"][1], e["pos"][2], 25.0, "npc",
                      p["roam_loot_range"])
 
-    if best is not None and world.blocked(best[0], best[1], world.ground(best[0], best[1]), 9.0):
+    if best is not None and world.blocked(best[0], best[1], world.ground(best[0], best[1])):
         best = None
     if best is not None:
         return best, kind
@@ -309,6 +309,6 @@ def loot_goal(obs, me, params, world, threats, t):
     if score < 0:
         return None
     # do not walk into a wall for loot
-    if world.blocked(cx, cy, world.ground(cx, cy), 9.0):
+    if world.blocked(cx, cy, world.ground(cx, cy)):
         return None
     return (cx, cy)

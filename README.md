@@ -73,3 +73,4 @@ official practice score. **No official practice submission has been made yet.**
 | Kite hold 8 s vs 5 s | 0.00 ± 0.09 | 6 s default |
 | Kite hold 14 s vs 8 s | −0.21 ± 0.13 | rejected |
 | Full-speed (loud) movement vs quiet | −0.67 ± 0.26 | quiet movement kept |
+| Live-config body geometry (radius/height/step-up/slope/canopy, D5) | +0.42 ± 0.51 (24 paired, harsh) / +0.13 ± 0.18 (24 paired, mild) | **inconclusive**; retained only as protocol correctness (no hardcoded rule numbers), not claimed as a gain |

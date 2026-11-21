@@ -18,6 +18,9 @@ class Planner:
         self.c = world.nav_cell
         self.minx, self.miny = world.minx, world.miny
         self.blocked = world.nav_blocked
+        self.radius = float(getattr(world, "radius", 2.5))
+        self.height = float(getattr(world, "height", 9.0))
+        self.step_up = float(getattr(world, "step_up", 1.2))
 
     def cell(self, x, y):
         i = int((x - self.minx) / self.c)
@@ -111,8 +114,9 @@ class Planner:
                     heapq.heappush(openq, (ng + h(nxt), ng, nxt))
         return []
 
-    def reach(self, x, y, z, ux, uy, radius=2.5):
+    def reach(self, x, y, z, ux, uy, radius=None):
         """How far (m) a body can travel from (x,y) along a unit heading."""
+        radius = self.radius if radius is None else radius
         out = 0.0
         px, py = x, y
         for d in (2.0, 4.0, 6.0, 9.0, 13.0):
@@ -122,8 +126,9 @@ class Planner:
             out, px, py = d, qx, qy
         return out
 
-    def steer(self, x, y, gx, gy, z, path=None, radius=2.5):
+    def steer(self, x, y, gx, gy, z, path=None, radius=None):
         """Return a unit (dx,dy) direction toward the goal that avoids walls."""
+        radius = self.radius if radius is None else radius
         dx, dy = gx - x, gy - y
         d = math.hypot(dx, dy)
         if d < 0.5:
@@ -162,13 +167,14 @@ class Planner:
         return best or (ux, uy)
 
 
-def safe_heading(world, x, y, z, mx, my, radius=2.5, min_reach=8.0):
+def safe_heading(world, x, y, z, mx, my, radius=None, min_reach=8.0):
     """Rotate a composed movement vector to the nearest body-clear heading.
 
     Dodge / NPC-repulsion / strafe contributions can point a perfectly good
     steering direction straight into a wall.  Always re-validate the *final*
     vector.  Returns ((dx,dy), reach).
     """
+    radius = float(getattr(world, "radius", 2.5)) if radius is None else radius
     m = math.hypot(mx, my)
     if m < 1e-6:
         return (0.0, 0.0), 0.0

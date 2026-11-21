@@ -63,7 +63,7 @@ class ZoneModel:
             # must be inside the current circle with margin
             if math.hypot(gx - cx, gy - cy) > r * margin:
                 continue
-            if world.blocked(gx, gy, world.ground(gx, gy), 9.0):
+            if world.blocked(gx, gy, world.ground(gx, gy)):
                 continue
             cover = world.cover_score(gx, gy, world.ground(gx, gy))
             tdist = min((math.hypot(gx - p[0], gy - p[1]) for p in threats), default=180.0)

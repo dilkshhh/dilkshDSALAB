@@ -38,11 +38,27 @@ def _spans(ring, y):
 
 
 class World:
-    def __init__(self, map_dir, cell=1.0, nav_cell=8.0, load_trees=True):
+    def __init__(self, map_dir, cell=1.0, nav_cell=8.0, load_trees=True, cfg=None):
         self.map_dir = map_dir
         with open(os.path.join(map_dir, "v2", "world.json"), "r", encoding="utf-8") as f:
             w = json.load(f)
         self.w = w
+        cfg = cfg or {}
+        mech = cfg.get("mech", {}) or {}
+        cubes = cfg.get("cubes", {}) or {}
+        rules = w.get("rules", {}) or {}
+        self.radius = float(mech.get("radius", 2.5))
+        self.height = float(mech.get("height", 9.0))
+        self.step_up = float(mech.get("step_up", 1.2))
+        self.eye_height = float(mech.get("eye_height", 8.0))
+        self.muzzle_height = float(mech.get("muzzle_height", 7.0))
+        self.front_arc_deg = float(mech.get("front_arc_deg", 180.0))
+        self.rear_mult = float(mech.get("rear_mult", 1.5))
+        self.size_per_cube = float(cubes.get("size_per_cube", 0.05))
+        self.canopy_density = float(rules.get("canopyDensity", 0.35))
+        self.canopy_block_t = float(rules.get("canopyBlockT", 0.25))
+        slope_deg = float(mech.get("max_slope_deg", rules.get("maxSlopeDeg", 50.0)))
+        self.max_slope = math.tan(math.radians(slope_deg))
         t = w["terrain"]
         self.minx, self.miny = float(t["minX"]), float(t["minY"])
         self.tstep, self.tscale = float(t.get("step", 1.0)), float(t.get("scale", 0.01))
@@ -163,11 +179,11 @@ class World:
                 x = self.minx + i * c
                 z = self.ground(x, y)
                 self.nav_z[row + i] = z
-                blk = self.blocked(x, y, z, 9.0)
+                blk = self.blocked(x, y, z)
                 if not blk:
                     d = self.ground(x + c, y) - z
                     d2 = self.ground(x, y + c) - z
-                    if max(abs(d), abs(d2)) / c > 1.19:
+                    if max(abs(d), abs(d2)) / c > self.max_slope:
                         blk = True
                 if x < self.minx + 4 or x > self.maxx - 4 or y < self.miny + 4 or y > self.maxy - 4:
                     blk = True
@@ -196,8 +212,9 @@ class World:
         """Terrain height of the 1 m column under (x, y)."""
         return self.g[self.idx(x, y)]
 
-    def surface(self, x, y, z, step_up=1.2):
+    def surface(self, x, y, z, step_up=None):
         """Highest walkable surface at (x,y) at or below z + step_up."""
+        step_up = self.step_up if step_up is None else step_up
         k = self.idx(x, y)
         s = self.g[k]
         if self.top[k] <= z + step_up and self.top[k] > s:
@@ -237,12 +254,18 @@ class World:
                 return False
         return True
 
-    def blocked(self, x, y, z, h=9.0, step_up=1.2, radius=2.5):
+    def blocked(self, x, y, z, h=None, step_up=None, radius=None):
         """True when a mech with feet at z cannot stand at (x,y)."""
+        h = self.height if h is None else h
+        step_up = self.step_up if step_up is None else step_up
+        radius = self.radius if radius is None else radius
         return not self._ring(x, y, z, h, radius, step_up)
 
-    def walk_clear(self, x0, y0, x1, y1, z, h=9.0, radius=2.5, step_up=1.2):
+    def walk_clear(self, x0, y0, x1, y1, z, h=None, radius=None, step_up=None):
         """True when the straight segment is body-clear at the current height."""
+        h = self.height if h is None else h
+        step_up = self.step_up if step_up is None else step_up
+        radius = self.radius if radius is None else radius
         dx, dy = x1 - x0, y1 - y0
         d = math.hypot(dx, dy)
         if d < 0.01:
@@ -301,10 +324,10 @@ class World:
                     if cb <= z <= top:
                         d = math.hypot(x - cx, y - cy)
                         if d < cr:
-                            density += 0.35 * (1.0 - d / cr)
+                            density += self.canopy_density * (1.0 - d / cr)
                     if z < cb and math.hypot(x - tx, y - ty) < tr:
                         return False
-            if density > 0.75:
+            if density > self.canopy_block_t:
                 return False
         return True
 
@@ -313,7 +336,7 @@ class World:
         score = 0.0
         for ang in (0.0, math.pi / 2, math.pi, 3 * math.pi / 2):
             px, py = x + math.cos(ang) * 6.0, y + math.sin(ang) * 6.0
-            if self.blocked(px, py, z, 9.0):
+            if self.blocked(px, py, z):
                 score += 0.25
         return score
 
@@ -326,11 +349,25 @@ class NullWorld:
     but keeps zone logic, facing, firing and economy working.
     """
 
-    def __init__(self):
+    def __init__(self, cfg=None):
+        cfg = cfg or {}
+        mech = cfg.get("mech", {}) or {}
+        cubes = cfg.get("cubes", {}) or {}
         self.ready = False
         self.minx, self.miny = -600.0, -600.0
         self.maxx, self.maxy = 600.0, 600.0
         self.nav_cell = 8.0
+        self.radius = float(mech.get("radius", 2.5))
+        self.height = float(mech.get("height", 9.0))
+        self.step_up = float(mech.get("step_up", 1.2))
+        self.eye_height = float(mech.get("eye_height", 8.0))
+        self.muzzle_height = float(mech.get("muzzle_height", 7.0))
+        self.front_arc_deg = float(mech.get("front_arc_deg", 180.0))
+        self.rear_mult = float(mech.get("rear_mult", 1.5))
+        self.size_per_cube = float(cubes.get("size_per_cube", 0.05))
+        self.canopy_density = 0.35
+        self.canopy_block_t = 0.25
+        self.max_slope = 1.19
         self.nx = self.ny = self.nnx = self.nny = 0
         self.nav_blocked = bytearray(0)
         self.nav_z = []
@@ -341,7 +378,7 @@ class NullWorld:
     def ground(self, x, y):
         return 0.0
 
-    def surface(self, x, y, z, step_up=1.2):
+    def surface(self, x, y, z, step_up=None):
         return 0.0
 
     def idx(self, x, y):
@@ -353,7 +390,7 @@ class NullWorld:
     def intervals(self, x, y):
         return None
 
-    def blocked(self, x, y, z, h=9.0, step_up=1.2, radius=2.5):
+    def blocked(self, x, y, z, h=None, step_up=None, radius=None):
         return False
 
     def _ring(self, x, y, z, h, radius, step_up):
@@ -371,5 +408,5 @@ class NullWorld:
     def cover_score(self, x, y, z):
         return 0.0
 
-    def walk_clear(self, x0, y0, x1, y1, z, h=9.0, radius=2.5, step_up=1.2):
+    def walk_clear(self, x0, y0, x1, y1, z, h=None, radius=None, step_up=None):
         return True
