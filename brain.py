@@ -306,6 +306,22 @@ class Brain:
                 if lg is not None:
                     goal, goal_kind = lg, "loot"
 
+        # ---- hunting ------------------------------------------------------
+        # Close on the nearest known enemy and finish it.  This is the opposite
+        # of the survival-first default, kept behind a switch because the
+        # simulator's squad punishes it while the real squad may not.
+        hunting = False
+        if (p["hunt_enabled"] and not emergency and hp_frac > p["hunt_hp"]
+                and t < p["hunt_until"] and not (t < self.flee_until)):
+            cand = [e for e in visible
+                    if math.hypot(e["pos"][0] - x, e["pos"][1] - y) < p["hunt_range"]]
+            if cand:
+                e = min(cand, key=lambda q: math.hypot(q["pos"][0] - x, q["pos"][1] - y))
+                ed = math.hypot(e["pos"][0] - x, e["pos"][1] - y)
+                if ed > p["hunt_standoff"]:
+                    goal, goal_kind = (e["pos"][0], e["pos"][1]), "hunt"
+                    hunting = True
+
         # ---- LOS-breaking cover -------------------------------------------
         # Squad vision is shared; distance-hiding fails, occlusion works.
         covered = False
@@ -367,6 +383,8 @@ class Brain:
             deadzone = 1.8
         elif goal_kind in ("weapon", "cube", "crate", "npc", "loot"):
             deadzone = 2.5        # get inside the 4 m pickup radius
+        elif goal_kind == "hunt":
+            deadzone = max(8.0, p["hunt_standoff"])
         else:
             deadzone = 12.0
         at_goal = math.hypot(goal[0] - x, goal[1] - y) < deadzone
@@ -464,7 +482,7 @@ class Brain:
         speed_scale = 1.0
         quiet = (p["quiet_when_safe"] and not emergency and close > 70.0
                  and npc_close > 55.0 and t < p["late_survival_t"] and not escaping
-                 and not roaming and not kiting)
+                 and not roaming and not kiting and not hunting)
         if quiet:
             speed_scale = min(1.0, p["quiet_speed"] / max(1.0, self.walk_speed))
         boost = bool(p["emergency_boost"] and (emergency or (hp_frac < 0.25 and mclose < 30.0)))

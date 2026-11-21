@@ -29,8 +29,8 @@ DEFAULT = {
     "quiet_speed": 4.85,          # <= step_speed (5 m/s) makes no footstep sound
     "quiet_when_safe": True,      # move silently when no threat is close
     # --- engagement ----------------------------------------------------
-    "aggression": 0.35,           # 0 = pure pacifist, 1 = fight anything in range
-    "engage_range": 95.0,         # only consider fighting inside this range
+    "aggression": 1.0,            # 0 = pure pacifist, 1 = fight anything in range
+    "engage_range": 240.0,        # only consider fighting inside this range
     "fire_enabled": True,
     "fire_max_range": 175.0,
     "early_farm_until": 150.0,    # farm crates / NPCs / drops before this match time
@@ -69,6 +69,16 @@ DEFAULT = {
     "npc_break_range": 50.0,      # sprint out of drone aggro inside this range
     "npc_break_hold_s": 2.8,      # commit to the break for this long
     "drop_aggression": 0.0,       # 0 = ignore supply drops, 1 = always contest
+    # --- hunting -------------------------------------------------------
+    # Probe strategy: close on the nearest known enemy and kill it, instead of
+    # only ever reacting.  Against the simulator's squad this measures neutral
+    # to negative; it exists to test whether the real house bots are weaker
+    # than the emulation assumes.
+    "hunt_enabled": True,         # actively seek and engage (probe build)
+    "hunt_range": 170.0,          # only chase enemies known inside this range
+    "hunt_standoff": 55.0,        # close to this distance, then hold
+    "hunt_hp": 0.45,              # stop hunting below this HP fraction
+    "hunt_until": 300.0,          # stop hunting after this match time
     # --- early roam / economy -------------------------------------------
     "roam_until": 0.0,            # actively seek weapons + cubes before this t
     # --- kiting the coordinated squad -----------------------------------
