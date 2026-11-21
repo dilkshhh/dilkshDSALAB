@@ -17,6 +17,14 @@ DEFAULT = {
     "threat_bias": 1.35,          # weight on distance from known threats
     "travel_bias": 0.30,          # weight on travel distance to a hide spot
     "slope_bias": 0.10,           # mild preference for higher ground
+    # The ring of candidates is scored by endpoint distance only, so the bot
+    # happily drives *through* a visible squad to reach a spot that is a few
+    # metres farther from their centroid.  Score the path instead, and keep a
+    # goal for a few seconds so the argmax cannot flip every decision.
+    "path_threat_r": 60.0,        # clearance from a visible enemy along the route
+    "path_threat_bias": 1.6,      # weight on route clearance
+    "goal_replan_s": 6.0,         # hold a goal this long before re-scoring
+    "goal_hyst": 14.0,            # score margin required to abandon a held goal
     "emergency_boost": True,      # boost while outside the circle / when the shrink is closing in
     "quiet_speed": 4.85,          # <= step_speed (5 m/s) makes no footstep sound
     "quiet_when_safe": True,      # move silently when no threat is close
@@ -28,6 +36,12 @@ DEFAULT = {
     "early_farm_until": 150.0,    # farm crates / NPCs / drops before this match time
     "late_survival_t": 250.0,     # after this, never shoot unless cornered
     "hp_floor": 0.28,             # below this HP fraction, disengage completely
+    # Silence only helps while nobody is shooting at us.  Once a visible enemy
+    # is in gun range and landing damage, not returning fire is strictly worse
+    # than trading: the kiting loop alone cannot outrun bullets.
+    "recip_fire": True,           # return fire when damaged by a visible enemy in range
+    "recip_fire_hp": 0.45,        # ... but not below this HP fraction (disengage instead)
+    "recip_fire_window_s": 2.5,   # damage this recent counts as "in a fight"
     "retreat_hp": 0.55,
     "pressure_hide": 2,           # number of recent damage events that triggers hard hiding
     "face_threat": True,          # turn torso toward the attacker (front arc avoids x1.5)
@@ -54,6 +68,10 @@ DEFAULT = {
     "kite_enabled": True,         # A/B: +0.55 paired, death t 80 -> 105
     "kite_hp": 0.97,              # break contact below this HP fraction
     "kite_hold_s": 6.0,           # commit to the break-away for this long
+    # Kiting from 150 m chip damage is pure loss: it cancels every zone
+    # rotation, so the mech oscillates in place and dies where it spawned.
+    # Only break contact when the shooter is close enough to press the attack.
+    "kite_range": 100.0,          # only kite when the nearest enemy is this close
     "weapon_seek_range": 130.0,
     "roam_loot_range": 95.0,
     "roam_omega": 0.16,           # rad/s of the exploration sweep
@@ -74,6 +92,10 @@ DEFAULT = {
     "dodge_lead_s": 0.65,
     "laser_dodge_gain": 1.0,
     "strafe_gain": 0.85,
+    # Standing on a hide spot while a squad converges makes the mech a static
+    # target for mortars and lasers.  Keep drifting until they are far away.
+    "strafe_range": 120.0,        # strafe while the nearest enemy is inside this
+    "at_goal_stop_r": 120.0,      # only come to a full stop beyond this range
     "stuck_speed": 1.2,           # moved < this many m over 2 s => replan
     "escape_hold_s": 1.6,         # commit to one escape heading for this long
     # --- line-of-sight breaking (survival core) ------------------------

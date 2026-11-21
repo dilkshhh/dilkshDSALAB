@@ -300,7 +300,8 @@ class Brain:
         kiting = False
         recent_hits = [d for d in self.damage_bearings if t - d[1] < 3.0]
         if (p["kite_enabled"] and not emergency and not (t < self.flee_until)
-                and recent_hits and (hp_frac < p["kite_hp"] or len(recent_hits) >= 2)):
+                and recent_hits and mclose < p["kite_range"]
+                and (hp_frac < p["kite_hp"] or len(recent_hits) >= 2)):
             vx = -sum(math.cos(d[0]) * (1.0 + min(d[2], 200.0) / 200.0) for d in recent_hits)
             vy = -sum(math.sin(d[0]) * (1.0 + min(d[2], 200.0) / 200.0) for d in recent_hits)
             vd = math.hypot(vx, vy) or 1.0
@@ -335,7 +336,8 @@ class Brain:
             if self.stuck_t > 0.8:
                 self.stuck_t = 0.0
         mvx, mvy = self.nav.steer(x, y, goal[0], goal[1], z, self.path)
-        if at_goal and not emergency and not (t < self.flee_until):
+        if (at_goal and not emergency and not (t < self.flee_until)
+                and mclose > p["at_goal_stop_r"]):
             mvx, mvy = 0.0, 0.0
 
         # dodge incoming fire and telegraphed lasers
@@ -355,13 +357,15 @@ class Brain:
                 my -= ny / nd * w
 
         # strafe instead of walking straight at a shooter
-        if mclose < 55.0 and visible and not emergency:
+        sr = p["strafe_range"]
+        if mclose < sr and visible and not emergency:
             e = min(visible, key=lambda q: math.hypot(q["pos"][0] - x, q["pos"][1] - y))
             ex, ey = e["pos"][0] - x, e["pos"][1] - y
             ed = max(0.01, math.hypot(ex, ey))
             sx, sy = -ey / ed, ex / ed
-            mx += sx * p["strafe_gain"] * (1.0 - mclose / 70.0)
-            my += sy * p["strafe_gain"] * (1.0 - mclose / 70.0)
+            gain = p["strafe_gain"] * (1.0 - mclose / sr)
+            mx += sx * gain
+            my += sy * gain
 
         md = math.hypot(mx, my)
         if md > 1e-5:
@@ -441,6 +445,22 @@ class Brain:
                       and (not covered or cornered)
                       and (mclose < engage_dist or cornered)
                       and (self.recent_damage > 0.2 or mclose < 40.0 or p["aggression"] > 0.6))
+        # Reciprocal fire.  Holding fire buys silence only while nobody has
+        # found us; once a visible enemy is inside gun range and landing
+        # damage, kiting alone cannot outrun bullets and refusing to trade is
+        # strictly worse than shooting back.  This is the difference between
+        # dying with a full magazine and dying with an empty one.
+        if (p["recip_fire"] and not allow_fire and not emergency
+                and not covered and hp_frac > p["recip_fire_hp"]
+                and self.recent_damage > 0.05
+                and t - self.last_damage_t < p["recip_fire_window_s"]):
+            rng = max(40.0, p["engage_range"])
+            ey = z + me.get("stats", {}).get("muzzle_height", self.world.muzzle_height)
+            for e in visible:
+                if (math.hypot(e["pos"][0] - x, e["pos"][1] - y) <= rng
+                        and self.world.shot_clear((x, y, ey), e["pos"])):
+                    allow_fire = True
+                    break
         # crate / NPC farming is opt-in and only when nothing else is happening
         combat_targets = list(visible)
         farm = False
@@ -522,9 +542,11 @@ class Brain:
                 act["drop"] = drop
         if os.environ.get("BOT_DEBUG") and int(obs.get("tick", 0)) % 20 == 0:
             import sys
-            print("DBG t=%.1f pos=(%.0f,%.0f) goal=(%.0f,%.0f) mv=(%.2f,%.2f) "
-                  "reach=%.0f stuck=%.2f esc=%s npc=%.0f threats=%d hp=%.0f fire=%s"
-                  % (t, x, y, goal[0], goal[1], mx, my, reach, self.stuck_t,
-                     escaping, npc_close, len(threats), me["hp"], str(fire)),
+            print("DBG t=%.1f pos=(%.0f,%.0f) goal=(%.0f,%.0f) kind=%s mv=(%.2f,%.2f) "
+                  "reach=%.0f stuck=%.2f esc=%s npc=%.0f threats=%d vis=%d mclose=%.0f "
+                  "hp=%.0f fire=%s kit=%s cov=%s roam=%s adapt=%.2f"
+                  % (t, x, y, goal[0], goal[1], goal_kind, mx, my, reach, self.stuck_t,
+                     escaping, npc_close, len(threats), len(visible), mclose,
+                     me["hp"], str(fire), kiting, covered, roaming, adapt),
                   file=sys.stderr, flush=True)
         return act

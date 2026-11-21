@@ -74,3 +74,13 @@ official practice score. **No official practice submission has been made yet.**
 | Kite hold 14 s vs 8 s | −0.21 ± 0.13 | rejected |
 | Full-speed (loud) movement vs quiet | −0.67 ± 0.26 | quiet movement kept |
 | Live-config body geometry (radius/height/step-up/slope/canopy, D5) | +0.42 ± 0.51 (24 paired, harsh) / +0.13 ± 0.18 (24 paired, mild) | **inconclusive**; retained only as protocol correctness (no hardcoded rule numbers), not claimed as a gain |
+| Movement discipline: route clearance, goal hold, reciprocal fire, kite range gate, no static camping | score −0.22 ± 0.44, survival −3.5 ± 13.2 s, damage dealt +335 ± 239, kills +0.25 ± 0.21 (32 paired) | neutral on survival, positive on offence; kept because each item fixes a demonstrated defect (walking into the squad, standing still, dying with a full magazine) |
+
+### Calibration caveat on the local metric
+
+In the local simulator the 15 house bots survive **87 %** of matches, so the best
+reachable score is about 2.0 and the score signal is nearly flat. Measured score
+deltas therefore under-report real differences, and **survival time is the
+primary local signal**. Absolute local scores are not comparable with the
+official practice score, which reaches 5.96 on the live leaderboard.
+
