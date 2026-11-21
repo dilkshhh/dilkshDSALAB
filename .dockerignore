@@ -1,0 +1,13 @@
+*
+!Dockerfile
+!bot.py
+!mechfight.py
+!params.py
+!world.py
+!nav.py
+!zone.py
+!combat.py
+!econ.py
+!brain.py
+!LICENSE
+!README.md
