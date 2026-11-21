@@ -582,8 +582,25 @@ class Combat:
                 v = _num(st.get("speed"), 72.0)
                 g = _num(st.get("gravity"), 22.0)
                 splash_r = _num(st.get("splash_radius"), 7.0)
+                min_r = splash_r + p["mortar_self_safe"] if v2 else 30.0
+                max_r = min(220.0, v * v / max(1.0, g)) if v2 else 210.0
+                # Optional cluster aim: if another enemy is within 2*splash_r of target, aim midpoint
+                aim_base = tc
+                aim_vel = tv
+                cluster_mult = 1.0
+                if v2 and len(enemies) >= 2:
+                    for oe in enemies:
+                        if oe is target or oe.get("pos") is None:
+                            continue
+                        oc = self._center(oe)
+                        if math.dist(tc, oc) <= splash_r * 1.9:
+                            aim_base = ((tc[0] + oc[0]) * 0.5, (tc[1] + oc[1]) * 0.5, (tc[2] + oc[2]) * 0.5)
+                            ov = oe.get("vel", [0.0, 0.0, 0.0])
+                            aim_vel = [(tv[0] + ov[0]) * 0.5, (tv[1] + ov[1]) * 0.5, (tv[2] + ov[2]) * 0.5]
+                            cluster_mult = 1.85
+                            break
                 # Two-pass moving-target lead using the low-arc flight time.
-                pt = tc
+                pt = aim_base
                 R = math.hypot(pt[0] - src[0], pt[1] - src[1])
                 dz = pt[2] - src[2]
                 for _ in range(2):
@@ -592,11 +609,11 @@ class Combat:
                         break
                     c = math.cos(sol0[0])
                     tt = R / (v * c) if c > 0.01 else 9.0
-                    pt = (tc[0] + tv[0] * tt, tc[1] + tv[1] * tt, tc[2] + tv[2] * tt)
+                    pt = (aim_base[0] + aim_vel[0] * tt, aim_base[1] + aim_vel[1] * tt, aim_base[2] + aim_vel[2] * tt)
                     R = math.hypot(pt[0] - src[0], pt[1] - src[1])
                     dz = pt[2] - src[2]
                 sol = mortar_pitch(R, dz, v, g)
-                if sol and 30.0 < R < 210.0:
+                if sol and min_r < R < max_r:
                     yaw = math.atan2(pt[1] - src[1], pt[0] - src[0])
                     for pitch in sol:
                         if not (min_pitch <= pitch <= max_pitch):
@@ -623,14 +640,21 @@ class Combat:
                         if self_d < splash_r + p["mortar_self_safe"]:
                             continue
                         fy, fp = self._future(me, yaw, pitch)
-                        err = shot_error(src, (ix, iy, pt[2]), fy, fp)
+                        if v2:
+                            # Fix ballistic aim check: compare launch angles, not straight ray to ground!
+                            ang_err = math.hypot(wrap(fy - yaw), fp - pitch)
+                            hit_prob = clamp(1.0 - ang_err / 0.14, 0.0, 1.0)
+                        else:
+                            err = shot_error(src, (ix, iy, pt[2]), fy, fp)
+                            tol = tr + splash_r
+                            hit_prob = clamp(1.0 - err / tol, 0.0, 1.0)
                         tol = tr + splash_r
-                        hit_prob = clamp(1.0 - err / tol, 0.0, 1.0)
                         gate = fire_gate and w1.get("cooldown", 0) <= 0.05
                         utility = (_num(st.get("damage"), 200.0)
-                                   + _num(st.get("splash"), 160.0) * 0.5) * hit_prob
+                                   + _num(st.get("splash"), 160.0) * 0.5) * cluster_mult * hit_prob
+                        can_fire = gate and (hit_prob > 0.25 if v2 else True)
                         add(1, "mortar", (yaw, pitch), (ix, iy, pt[2]), tol,
-                            utility if gate else 0.0, (gate if strict else True),
+                            utility if gate else 0.0, (can_fire if strict else True),
                             gate and hit_prob > 0.1)
 
         if not candidates:
@@ -667,6 +691,8 @@ class Combat:
                 continue
             if c.get("cone") is not None:
                 compatible = abs(wrap(fy - c["aim"][0])) <= c["cone"]
+            elif v2 and c["kind"] == "mortar":
+                compatible = math.hypot(wrap(fy - c["aim"][0]), fp - c["aim"][1]) <= 0.10
             else:
                 compatible = shot_error(src, c["point"], fy, fp) <= c["tol"]
             if compatible:

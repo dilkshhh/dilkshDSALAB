@@ -357,6 +357,34 @@ within 52 m. Also fixed a zone-death bug where NPC `flee_until` cleared `emergen
 of regen (+1.5 s) while costing −505 damage and −0.32 kills vs E43. Kept behind
 `tactical_cover_v1: False`; retained the `emergency` zone-safety fix.
 
+### E45 — Snowball v2 (`snowball_v2`, adopted)
+Built on top of E43 (`snowball_v1`), removing every passive bottleneck and fixing a major
+mortar aiming bug:
+1. **Mortar ballistic aim fix (`combat.py`)**: `shot_error` previously compared the skyward
+   launch pitch against the ground impact ray (always 30–100 m error → `hit_prob = 0` →
+   mortar virtually never fired). Replaced with angular error `hypot(wrap(fy-yaw), fp-pitch)`
+   plus 2-target splash cluster midpoint aiming and live-config min/max range.
+2. **Active full-speed early patrol (`sb2_patrol_until=150`)**: sweep the safe zone at full
+   walk speed while hungry (`w1 is None` or `cubes < 8`) instead of camping at 4.85 m/s.
+3. **Approach visible NPC drones (<95 m) & crates (<80 m)** when safe (`sb_los_mechs==0`,
+   `mclose>82`), plus aggressive 3-cube kill-loot scooping even with distant enemies.
+4. **Lightning 1v1 rush (`sb2_light_rush`)**: suppress the 2-hit kite abort when holding
+   lightning in a healthy (`hp > 48 %`) 1v1 inside 82 m and boost into 24 m for 427 burst DPS;
+   hard-counter enemy lightning inside 52 m with away-boost when we lack lightning.
+5. **Supply drop contesting (`sb2_drop_contest`)**: capture reachable drops (<135 m, lands ≤16 s)
+   for full HP + full energy + 3 cubes.
+
+| Set | Orig Base | E43 (`v1`) | **E45 (`snowball_v2`)** | Paired Δ vs Base | Per-range Δ vs Base |
+| --- | --- | --- | --- | --- | --- |
+| train (n=48) | 1.98 / 1.25k / 74.7s | 2.46 / 1.67k | **2.48 / 1.96k / 68.0s** | **+0.50 ± 0.36** (**+0.71 ± 0.27k**) | `+0.31 / +0.00 / +1.19` |
+| holdout (n=48) | 1.67 / 1.23k / 65.9s | 2.29 / 1.71k | **2.42 / 1.90k / 68.2s** | **+0.75 ± 0.29** (**+0.67 ± 0.23k**) | **`+0.81 / +0.25 / +1.19`** |
+| **combined (n=96)** | **1.82 / 1.24k / 70.3s** | **2.38 / 1.69k** | **2.45 / 1.93k / 68.1s** | **+0.625 ± 0.23** (**+0.69 ± 0.18k**) | **6/6 ranges non-negative** |
+
+Metrics (96-match means): dealt 2,728 → **3,699** (+971, +36 %), taken 1,741 → **1,912**
+(+171), trade ratio 1.57× → **1.93×** (1.98× holdout), dmg/kill 2,200 → **1,920**, cubes
+0.37 → **1.73** (4.7×; 9.6× on holdout), zone deaths 6 → 2, seed 16000 reached **3.00**
+with **2.38 kills**. Adopted as default; ready for official calibration probe after sandbox check.
+
 ---
 
 ## Rejected

@@ -202,6 +202,11 @@ DEFAULT = {
     "tc_heal_hp": 0.52,           # enter low-HP regen protection below this fraction
     "tc_heal_exit": 0.84,         # resume poking above this fraction
     "tc_heal_close_r": 52.0,      # always fight back if an enemy has LOS inside this range
+    # --- snowball v2 (E45): mortar fix, active patrol, drone/crate approach, lightning rush, drops
+    "snowball_v2": True,          # A/B E45: +0.625 ± 0.23 across 96 matches (+0.75 holdout, +0.69 kills)
+    "sb2_patrol_until": 150.0,    # actively patrol at full speed while hungry for weapon/cubes
+    "sb2_light_rush": True,       # suppress 2-hit kite during healthy 1v1 lightning rush
+    "sb2_drop_contest": True,     # contest reachable supply drops (full HP + 3 cubes)
 }
 
 

@@ -1,6 +1,6 @@
 # STATE — where the project stands
 
-> Living document. Last updated **2026-11-21 22:50 UTC**. Rewrite this file at the
+> Living document. Last updated **2026-11-21 16:30 UTC**. Rewrite this file at the
 > start of every work session; it is the first thing the next agent reads.
 
 ## Clock
@@ -8,9 +8,9 @@
 | | |
 | --- | --- |
 | Cutoff | **2026-11-22 20:00 GMT+4 = 16:00 UTC** |
-| Time left at last update | ~17 hours |
+| Time left at last update | ~23.5 hours |
 | Submission limit | 4/hour platform, self-limited to **2/hour**, keep one slot free |
-| Submissions used | 4 (0.25, 1.83, 2.44, `7468dcb` — last score not recorded) |
+| Submissions used | 5 (0.25, 1.83, 2.44, **2.52** `7468dcb`, 2.50 `a33d613`) |
 
 ## Scoreboard
 
@@ -20,11 +20,10 @@
 | 16 | 5.38 | qualify for finals |
 | 32 | 5.13 | last qualifying slot |
 | 48 | 4.88 | |
-| us | **2.52** | `7468dcb` — best known, and what the platform will lock |
+| us | **2.52** | `7468dcb` — best official so far; `E45 snowball_v2` ready to probe |
 
 Official history: 0.25 → 1.83 (`ac7f72a`) → 2.44 (`407c50e`) → **2.52** (`7468dcb`)
-→ 2.50 (`a33d613`, reverted). The last three submissions are flat to two decimal
-places: we are on a plateau at ~2.5.
+→ 2.50 (`a33d613`, reverted).
 
 `score = 16 − place` = **the number of mechs that died before you**, per match,
 meaned over 48 matches on seeds that are fixed for the whole event. See
@@ -32,13 +31,15 @@ meaned over 48 matches on seeds that are fixed for the whole event. See
 
 ## What the bot is right now
 
-`HEAD` is **behaviourally identical to `7468dcb`** (the 2.52 build). The only
-deltas since are two inert params (`fire_gate_strict: False`, `pickup_detour_r: 30`)
-and the fire-gate fix, which is disabled by default. Local profile over 48 matches:
-**score ~1.94, death ~70 s, kills ~1.27**.
+`HEAD` is **`E45 snowball_v2`** — the first architecture in the project to break the
+2.10 local ceiling on both train and holdout:
+- **Train (n=48):** score **2.48** (+0.50 vs 1.98), kills **1.96** (+0.71), dealt **3,729** (+833), taken **1,968** (+231)
+- **Holdout (n=48):** score **2.42** (+0.75 vs 1.67), kills **1.90** (+0.67), dealt **3,668** (+1,108), trade ratio **1.98×**
+- **Combined (n=96):** score **2.45** (**+0.625 ± 0.23**), kills **1.93** (**+0.69 ± 0.18**, +56%), 6/6 seed ranges non-negative.
 
-It passes the sandbox conformance check (299/300, p99 20.5 ms, max 87.6 ms) and
-builds clean. Nothing in the tree is broken.
+Mechanisms added in E41–E45:
+- **Adopted:** `snowball_v1` + `snowball_v2` (lightning-first preference, gun+lightning shared-pitch dual-wielding, full/lethal laser charge controller, mortar ballistic aim fix + cluster targeting, proactive gun reload, fixed exact upgrade valuation for `armor`/`plating`, persistent `known_pickups` memory, active early patrol, safe NPC drone & crate farming, aggressive cube & 3-cube kill-loot scooping, lightning 1v1 rush, enemy lightning hard-counter, supply drop contesting, zone emergency fix, crash-safe `Bot.act` wrapper).
+- **Tested and rejected (kept behind default-off flags):** `combat_v2` open-ground strafing (−0.15, −16.7s life), `roof_enabled` rooftop camping (−0.23, +10s life, −0.42k, 8× mortar dmg), `tactical_cover_v1` low-HP hold-fire regen (−0.23 vs E43, −0.32k).
 
 ## The central problem
 

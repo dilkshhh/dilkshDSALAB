@@ -438,15 +438,17 @@ class Brain:
                     sb_boost = True
 
             # 2) Kill-loot corpse (3 cubes + weapon!)
-            if not sb_econ_lock and self.kill_loots and sb_los_mechs == 0 and hp_frac > 0.35:
+            sb2 = bool(p.get("snowball_v2", False))
+            if not sb_econ_lock and self.kill_loots and hp_frac > 0.35 and (sb_los_mechs == 0 or (sb2 and mclose > 30.0)):
+                kl_lim = 55.0 if (sb2 and sb_los_mechs > 0) else 75.0
                 for kx, ky, kz, kt in reversed(self.kill_loots):
                     if abs(kz - z) > 4.5:
                         continue
                     kd = math.hypot(kx - x, ky - y)
-                    if kd > 75.0 or math.hypot(kx - ccx, ky - ccy) > cr * 0.88:
+                    if kd > kl_lim or math.hypot(kx - ccx, ky - ccy) > cr * 0.88:
                         continue
                     near_e = min((math.hypot(kx - e["pos"][0], ky - e["pos"][1]) for e in visible), default=999.0)
-                    if near_e < 26.0:
+                    if near_e < (24.0 if sb2 else 26.0):
                         continue
                     if not self.world.blocked(kx, ky, self.world.ground(kx, ky)):
                         goal, goal_kind = (kx, ky), "loot"
@@ -494,7 +496,7 @@ class Brain:
                     and sb_los_mechs == 0 and mclose > 88.0 and hp_frac > 0.45
                     and (me.get("cubes", 0) < 10 or w1 is None)):
                 best_cr = None
-                best_crd = 48.0
+                best_crd = 55.0 if sb2 else 48.0
                 for cr_it in obs.get("crates", []):
                     cx, cy, cz = cr_it["pos"]
                     if abs(cz - z) > 4.5:
@@ -504,6 +506,73 @@ class Brain:
                         best_crd = cd
                         best_cr = cr_it
                 sb_farm_crate = best_cr
+
+            # 5) snowball_v2: supply drops, approach visible NPC/crate, active patrol!
+            if sb2 and not sb_econ_lock:
+                # 5a) Supply drops (FULL HP + FULL ENERGY + 3 CUBES!)
+                if p.get("sb2_drop_contest", True):
+                    best_dr = None
+                    best_drd = 135.0
+                    for dr in obs.get("drops", []):
+                        if dr.get("lands_in", 99.0) > 16.0:
+                            continue
+                        dx_d, dy_d, dz_d = dr["pos"]
+                        if abs(dz_d - z) > 5.0 or math.hypot(dx_d - ccx, dy_d - ccy) > cr * 0.88:
+                            continue
+                        dd_d = math.hypot(dx_d - x, dy_d - y)
+                        if dd_d >= best_drd:
+                            continue
+                        near_e = min((math.hypot(dx_d - e["pos"][0], dy_d - e["pos"][1]) for e in visible), default=999.0)
+                        if near_e < 26.0 and hp_frac < 0.70:
+                            continue
+                        if not self.world.blocked(dx_d, dy_d, self.world.ground(dx_d, dy_d)):
+                            best_drd = dd_d
+                            best_dr = (dx_d, dy_d, dr.get("lands_in", 0.0))
+                    if best_dr is not None:
+                        goal, goal_kind = (best_dr[0], best_dr[1]), "loot"
+                        sb_econ_lock = True
+                        if best_drd > 10.0 and best_dr[2] < 8.0 and me.get("energy", 0) > 40.0:
+                            sb_boost = True
+
+                # 5b) Approach visible NPC drone (<95m) or crate (<80m) when safe to farm cubes!
+                if (not sb_econ_lock and sb_los_mechs == 0 and mclose > 82.0
+                        and hp_frac > 0.45 and me.get("cubes", 0) < 12):
+                    if p.get("snowball_npc_farm", True) and npc_near is not None:
+                        nx_d, ny_d, nz_d = npc_near["pos"]
+                        if (npc_close < 95.0 and abs(nz_d - z) < 5.0
+                                and math.hypot(nx_d - ccx, ny_d - ccy) < cr * 0.88):
+                            near_e = min((math.hypot(nx_d - e["pos"][0], ny_d - e["pos"][1]) for e in visible), default=999.0)
+                            if near_e > 55.0 and npc_close > 26.0:
+                                goal, goal_kind = (nx_d, ny_d), "npc"
+                                sb_econ_lock = True
+                    if not sb_econ_lock and p.get("snowball_crate_farm", True) and (me.get("cubes", 0) < 10 or w1 is None):
+                        best_cr2 = None
+                        best_cd2 = 80.0
+                        for cr_it in obs.get("crates", []):
+                            cx, cy, cz = cr_it["pos"]
+                            if abs(cz - z) > 5.0 or math.hypot(cx - ccx, cy - ccy) > cr * 0.88:
+                                continue
+                            cd = math.hypot(cx - x, cy - y)
+                            if cd < best_cd2 and cd > 22.0:
+                                near_e = min((math.hypot(cx - e["pos"][0], cy - e["pos"][1]) for e in visible), default=999.0)
+                                if near_e > 60.0:
+                                    best_cd2 = cd
+                                    best_cr2 = (cx, cy)
+                        if best_cr2 is not None:
+                            goal, goal_kind = best_cr2, "crate"
+                            sb_econ_lock = True
+
+                # 5c) Active full-speed patrol while hungry for secondary weapon or cubes!
+                if (not sb_econ_lock and not visible and t < p.get("sb2_patrol_until", 150.0)
+                        and (w1 is None or me.get("cubes", 0) < 8)):
+                    nc = obs["zone"]["next_center"]
+                    nr = obs["zone"]["next_radius"]
+                    a = ((self.seed % 360) * math.pi / 180.0) + t * 0.22
+                    pr = min(cr * 0.62, max(60.0, nr * 0.72))
+                    px_p = nc[0] + math.cos(a) * pr
+                    py_p = nc[1] + math.sin(a) * pr
+                    if math.hypot(px_p - ccx, py_p - ccy) < cr * 0.80:
+                        goal, goal_kind = (px_p, py_p), "patrol"
         elif roaming:
             goal, goal_kind = seek_goal(obs, me, p, self.world, goal_threats, t,
                                         (ccx, ccy), cr, self.seed)
@@ -662,17 +731,45 @@ class Brain:
                 self.kite_until = t + (1.4 if light_danger and hp_frac >= p["v2_kite_hp"] else p["v2_kite_hold_s"])
             elif finishing:
                 self.kite_until = -1.0
-        elif (p["kite_enabled"] and not emergency and not (t < self.flee_until)
-                and recent_hits
-                and not (sb and duel_tgt is not None and (duel_tgt.get("hp") or 1400.0) <= 340.0 and hp_frac > 0.25)
-                and (mclose < p["kite_range"] or self.disengage)
-                and (hp_frac < p["kite_hp"] or len(recent_hits) >= 2
-                     or self.disengage)):
-            vx = -sum(math.cos(d[0]) * (1.0 + min(d[2], 200.0) / 200.0) for d in recent_hits)
-            vy = -sum(math.sin(d[0]) * (1.0 + min(d[2], 200.0) / 200.0) for d in recent_hits)
-            vd = math.hypot(vx, vy) or 1.0
-            self.kite_dir = (vx / vd, vy / vd)
-            self.kite_until = t + p["kite_hold_s"]
+        sb2 = bool(p.get("snowball_v2", False))
+        sb2_light_rush = (
+            sb2 and p.get("sb2_light_rush", True)
+            and w1_kind == "lightning" and me.get("energy", 0) > 22
+            and hp_frac > 0.48 and sb_los_mechs <= 1
+            and duel_tgt is not None
+            and math.hypot(duel_tgt["pos"][0] - x, duel_tgt["pos"][1] - y) < 82.0
+            and (not tgt_has_light or me["hp"] >= (duel_tgt.get("hp") or 1400.0) * 0.90)
+        )
+        sb2_enemy_light_close = (
+            sb2 and w1_kind != "lightning"
+            and any("lightning" in (e.get("weapons") or [])
+                    and math.hypot(e["pos"][0] - x, e["pos"][1] - y) < self.cfg_light_range + 7.0
+                    for e in visible)
+        )
+        if not v2:
+            if sb2_light_rush:
+                self.kite_until = -1.0
+                ed_lr = math.hypot(duel_tgt["pos"][0] - x, duel_tgt["pos"][1] - y)
+                if ed_lr > my_light_r - 3.0 and me.get("energy", 0) > 35:
+                    sb_boost = True
+            elif sb2_enemy_light_close and not emergency and not (t < self.flee_until):
+                le = min((e for e in visible if "lightning" in (e.get("weapons") or [])),
+                         key=lambda q: math.hypot(q["pos"][0] - x, q["pos"][1] - y))
+                vx, vy = x - le["pos"][0], y - le["pos"][1]
+                vd = math.hypot(vx, vy) or 1.0
+                self.kite_dir = (vx / vd, vy / vd)
+                self.kite_until = max(self.kite_until, t + 1.5)
+            elif (p["kite_enabled"] and not emergency and not (t < self.flee_until)
+                    and recent_hits
+                    and not (sb and duel_tgt is not None and (duel_tgt.get("hp") or 1400.0) <= 340.0 and hp_frac > 0.25)
+                    and (mclose < p["kite_range"] or self.disengage)
+                    and (hp_frac < p["kite_hp"] or len(recent_hits) >= 2
+                         or self.disengage)):
+                vx = -sum(math.cos(d[0]) * (1.0 + min(d[2], 200.0) / 200.0) for d in recent_hits)
+                vy = -sum(math.sin(d[0]) * (1.0 + min(d[2], 200.0) / 200.0) for d in recent_hits)
+                vd = math.hypot(vx, vy) or 1.0
+                self.kite_dir = (vx / vd, vy / vd)
+                self.kite_until = t + p["kite_hold_s"]
         if t < self.kite_until and self.kite_dir is not None:
             kx, ky = self.kite_dir
             if p["kite_cover"] and visible:
@@ -1002,10 +1099,12 @@ class Brain:
         # a hide spot we are already standing on is not a goal: stop orbiting
         if covered:
             deadzone = 1.8
-        elif goal_kind in ("weapon", "cube", "crate", "npc", "loot"):
+        elif goal_kind in ("weapon", "cube", "loot"):
             deadzone = 2.5        # get inside the 4 m pickup radius
+        elif goal_kind in ("crate", "npc"):
+            deadzone = 22.0       # stop at safe shooting distance
         elif goal_kind == "hunt":
-            deadzone = max(8.0, duel_want if v2 else p["hunt_standoff"])
+            deadzone = max(8.0, duel_want if (v2 or sb) else p["hunt_standoff"])
         else:
             deadzone = 12.0
         at_goal = math.hypot(goal[0] - x, goal[1] - y) < deadzone
@@ -1129,7 +1228,7 @@ class Brain:
         quiet = (p["quiet_when_safe"] and not emergency and close > 70.0
                  and npc_close > 55.0 and t < p["late_survival_t"] and not escaping
                  and not roaming and not kiting and not hunting and not roof_active
-                 and goal_kind not in ("roof", "cube", "weapon", "loot"))
+                 and goal_kind not in ("roof", "cube", "weapon", "loot", "patrol", "npc", "crate"))
         if quiet:
             speed_scale = min(1.0, p["quiet_speed"] / max(1.0, self.walk_speed))
         boost = bool(p["emergency_boost"] and (emergency or (hp_frac < 0.25 and mclose < 30.0)))
