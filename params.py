@@ -102,10 +102,11 @@ DEFAULT = {
     "trade_flee_ratio": 0.65,     # dealt/taken below this = losing it
     "trade_flee_hp": 0.32,        # ... or this hurt, disengage
     # --- early roam / economy -------------------------------------------
-    # Measured (E37): secondary-weapon uptime rises 8% -> 35% and kills rise on
-    # both train and holdout, but score is flat.  Aggression-flavoured changes
-    # have transferred better officially than locally (F10), so this ships.
-    "roam_until": 45.0,           # actively seek weapons + cubes before this t
+    # Shipped in a33d613 (roam_until 45) and measured OFFICIALLY at 2.50, versus
+    # 2.52 for the build without it.  Weapon uptime does rise 8% -> 35% (E37) but
+    # the score effect is negative, so the default is back to off.  Kept as a knob
+    # because the mechanism is real; the exchange rate is not.
+    "roam_until": 0.0,            # actively seek weapons + cubes before this t
     # --- kiting the coordinated squad -----------------------------------
     "kite_enabled": True,         # A/B: +0.55 paired, death t 80 -> 105
     "kite_hp": 0.97,              # break contact below this HP fraction
@@ -120,7 +121,7 @@ DEFAULT = {
     "kite_cover": True,           # steer the break toward terrain occlusion
     "kite_cover_probe": 34.0,     # how far ahead the break heading is sampled
     "kite_cover_cache_s": 1.0,    # recompute the break heading this often
-    "weapon_seek_range": 200.0,
+    "weapon_seek_range": 130.0,
     # Measured: we hold a secondary weapon in only 14% of decisions (laser 8%,
     # lightning 6%), so 86% of the match is fought with the 45-damage gun.  The
     # detour radius was hard-coded at 30 m, which is smaller than the gap between

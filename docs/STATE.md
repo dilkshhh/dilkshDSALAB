@@ -20,7 +20,11 @@
 | 16 | 5.38 | qualify for finals |
 | 32 | 5.13 | last qualifying slot |
 | 48 | 4.88 | |
-| us | **2.44** | `407c50e`; `7468dcb` scored higher but the number was never recorded |
+| us | **2.52** | `7468dcb` — best known, and what the platform will lock |
+
+Official history: 0.25 → 1.83 (`ac7f72a`) → 2.44 (`407c50e`) → **2.52** (`7468dcb`)
+→ 2.50 (`a33d613`, reverted). The last three submissions are flat to two decimal
+places: we are on a plateau at ~2.5.
 
 `score = 16 − place` = **the number of mechs that died before you**, per match,
 meaned over 48 matches on seeds that are fixed for the whole event. See
@@ -28,12 +32,13 @@ meaned over 48 matches on seeds that are fixed for the whole event. See
 
 ## What the bot is right now
 
-`HEAD` is `7468dcb` + documentation commits. The working tree is the same policy as
-the submitted build: survival-first with a hunt layer on top. Local profile over
-48 matches: **score 1.83–1.96, death ~72 s, kills ~1.25**.
+`HEAD` is **behaviourally identical to `7468dcb`** (the 2.52 build). The only
+deltas since are two inert params (`fire_gate_strict: False`, `pickup_detour_r: 30`)
+and the fire-gate fix, which is disabled by default. Local profile over 48 matches:
+**score ~1.94, death ~70 s, kills ~1.27**.
 
-It passes the sandbox conformance check (299/300, one late answer, p99 24.7 ms,
-max 106 ms) and builds clean. Nothing in the tree is broken.
+It passes the sandbox conformance check (299/300, p99 20.5 ms, max 87.6 ms) and
+builds clean. Nothing in the tree is broken.
 
 ## The central problem
 
@@ -50,40 +55,52 @@ H3 is the one that keeps being right. Treat local score as a *floor* on quality,
 not a ranking of candidates — but do not ignore a local regression of −0.7 either
 (that is what warden produced, E13).
 
-## The local instrument is exhausted
+## The instrument situation (this changed — read it)
 
-Every change in round 2 landed inside ±0.2, while official scores move in steps of
-0.6. Repeated nulls: strict fire gate (−0.60, so the *fix* is right but the gate is
-wrong), pickup detour radius (0.00), early weapon roam (+0.02 / +0.15), full-charge
-laser (−0.02 / +0.16), gun-only (−0.17). Meanwhile a purpose-built replacement
-policy scored −0.7, and a single knob (`kite_hp`) moved nothing across four values.
+Earlier notes in this file said local A/B was exhausted. That was wrong in an
+important way. Two official data points settled it:
 
-**Conclusion: local A/B can no longer rank candidates.** It can still reject a
-−0.7 regression and confirm a mechanism is wired (weapon uptime 8 % → 35 %), but it
-cannot tell +0.1 from 0.0. From here, the official board is the better instrument —
-and a worse submission does **not** damage the best score, so probes are nearly free
-except for the human's time.
+- The roam probe predicted **+0.02** locally and delivered **−0.02** officially.
+- Hunt v1 was **flat locally** and **+0.61 officially**.
+
+So: **within an architecture, local deltas transfer 1:1 — but the offset between
+local and official is a property of the policy, not a constant.** Adding hunt moved
+the offset by ~+0.6 without moving the local score. Full analysis in
+`FINDINGS.md` F17.
+
+Practical rules for the next agent:
+
+1. **Official resolution is ~±0.05** (practice seeds are fixed; only slot and spawn
+   vary). It is a far finer instrument than local (±0.5). Use it to *measure*.
+2. **Local is for generating candidates**, not ranking them. Its value is that it
+   is free and unlimited; its weakness is that it under-prices aggression.
+3. **A change that moves local by less than ~0.5 is not worth a slot** unless it is
+   a new mechanism with a strong argument, in which case a probe is cheap: a worse
+   submission never damages the best score.
 
 ## Next actions, ranked
 
-1. **Recover the official score for `7468dcb`.** It is the single most valuable
-   datum in the project: it is the only measurement of whether local-neutral
-   aggression transfers (hunt v1 went 1.83 → 2.44 that way). Without it we cannot
-   tell whether the current build is at 2.5 or 3.5, and every calibration argument
-   in `FINDINGS.md` F10 is extrapolation.
-2. **Submit the early-roam build as a probe.** `roam_until 45`,
-   `weapon_seek_range 200`. Kills up on train and holdout, weapon uptime 4×,
-   aggression-flavoured — the class that has historically transferred better
-   officially than locally. Set as defaults, run the sandbox conformance check,
-   commit, request submission.
-3. **Then, and only then, attack the real gap.** With H1 (laser) dead and H2
-   (survival) unsupported, the remaining explanation is H3 — the real squad is
-   weaker than the emulation — plus the duty-cycle problem: a shootable target
-   exists in only 21 % of decisions, and 44 % are terrain-blocked. Raising the duty
-   cycle is a positioning problem, not a weapon or survival problem.
-4. **Untested and cheap:** lightning preference (240 dps inside 45 m, currently
-   ranked last); rooftops (we never jump); the regen cycle (now testable via E35);
-   kill-loot collection (built, default off, never measured).
+1. **Find a mechanism worth +2.6, or accept 2.52.** That is the arithmetic:
+   qualification is 5.13, we are at 2.52, transfer is 1:1, and the best local score
+   any policy has produced here is ~2.1. Tuning cannot close it. The next agent
+   should spend its first hour on *what could plausibly double the score*, not on
+   knobs.
+2. **The three live hypotheses**, in order of how much evidence supports them:
+   - **H3 — the real squad is weaker than the emulation.** Supported by hunt v1
+     (+0.61 official, 0 local). If true, more aggression is underpriced and a
+     bolder policy transfers better than it measures.
+   - **H4 — duty cycle.** A shootable target exists in only 21 % of decisions and
+     44 % are terrain-blocked. Damage is limited by *target availability*, which is
+     a positioning problem. Nothing we have tried attacks it directly.
+   - **H1 (laser) is dead** (F8): the laser is DPS-neutral, not a 3× upgrade.
+   - **H2 (survival) is dead** (F6, E35): a true pacifist scores 0.38, and the best
+     survival policy we could build reached 84 s and scored −0.77.
+3. **Untested and cheap**, in rough value order: lightning preference (240 dps
+   inside 45 m, currently ranked last); rooftops and jump/jet (we never use them,
+   25 % of loot is on roofs); the regen cycle (now testable via `fire_gate_strict`);
+   per-target damage ledger so fire commits instead of spreading; kill-loot
+   collection (built, default off, never measured).
+4. **Do not re-submit HEAD expecting a change.** It is the 2.52 build.
 
 ## What not to do
 

@@ -135,8 +135,38 @@ When a submission is warranted, send a notification containing:
 4. the exact test requested.
 
 Budget: platform allows 4/hour; we self-limit to **2/hour** and leave a slot free.
-Default ceiling: **one submission per hour**, and only for a genuinely promising
-change — not a coin flip.
+
+### The transfer function (measured — see F17)
+
+| | Local | Official |
+| --- | --- | --- |
+| Resolution | ~±0.5 | **~±0.05** |
+| Cost | free, unlimited | 1 slot, a few minutes |
+| Bias | under-prices aggression | ground truth |
+
+- **Within an architecture, Δlocal ≈ Δofficial.** A change that moves local by
+  +0.5 moves the board by ~+0.5.
+- **The offset is not constant.** It was ~−0.2 before hunt mode and ~+0.55 after.
+  Never carry an offset across a change of aggression class.
+- **Official is the fine instrument.** Because practice seeds are fixed, resubmitting
+  the same bot varies only by slot and spawn. Use the board to confirm, and to
+  measure anything under 0.5.
+- **A worse submission costs nothing but a slot** — the leaderboard keeps your best.
+  So probes are cheap, and the only real constraint is the human's patience.
+
+### Cadence that follows from this
+
+1. Generate candidates locally; keep anything ≥ +0.3 with a mechanism you can name.
+2. Probe one candidate at a time. Bundling two changes makes the result
+   uninterpretable.
+3. After the board answers, record it in `EXPERIMENTS.md` E40 **and** update the
+   offset table in F17 if the architecture changed.
+
+### Reverting
+
+If a probe comes back negative, revert the default but **keep the knob and the
+measurement**. Example: `roam_until` is back to 0.0, but the 8 % → 35 % weapon
+uptime result and the −0.02 official delta are both recorded (E37, E40).
 
 ## Debugging
 

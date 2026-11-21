@@ -6,13 +6,13 @@ assume context that is not written down.
 
 **What this is:** a bot for the Builders Buildathon **Mech Royale** track — a
 16-mech free-for-all where `score = 16 − place`, averaged over 48 practice
-matches. Deadline **2026-11-22 16:00 UTC**. Current official score **2.44**, best
-in the world **5.96**.
+matches. Deadline **2026-11-22 16:00 UTC**. Current official score **2.52**, best
+in the world **5.96**, qualification at **5.13**.
 
 **What state it is in:** the bot works, passes the sandbox conformance check, and
-sits ~2.4 on the official board. The architecture is sound; the *policy* is aimed
-at the wrong objective, and we have measurements proving it. See
-[`docs/STATE.md`](docs/STATE.md) for the one-page picture and
+has been stuck at ~2.5 for three submissions. The architecture is sound and the
+policy is well-measured; what is missing is a mechanism worth **+2.6**, not a
+better constant. See [`docs/STATE.md`](docs/STATE.md) for the one-page picture and
 [`docs/FINDINGS.md`](docs/FINDINGS.md) for what is actually true about the game.
 
 ---
@@ -66,9 +66,15 @@ guarantees*. Read it when you need a protocol fact, not a strategy.
   killing**, and the squad's escalation means kills are cheapest early.
 - Our bot dies at ~70 s. A careful, gate-driven policy from an external reviewer
   survived 84 s but killed 4× less and scored −0.77. **Survival bought with
-  aggression is a losing trade** in the local proxy.
-- The local proxy is calibrated in absolute terms (local ~1.9 vs official 1.83)
-  but **under-rewards aggression** (hunt mode: neutral locally, +0.61 officially).
+  aggression is a losing trade.**
+- **Local Δ transfers 1:1 to the official board, but the offset is a property of
+  the policy, not a constant** (F17). Hunt mode added ~+0.6 of offset while moving
+  the local score by zero.
+- Two hypotheses are dead: a laser does **not** unlock kills (it is DPS-neutral),
+  and survival does **not** unlock score (a true pacifist scores 0.38).
+- The open one is the **duty cycle**: a shootable target exists in only 21 % of
+  decisions and 44 % are terrain-blocked. Damage is limited by target availability,
+  which is a positioning problem nothing has attacked directly.
 
 ---
 

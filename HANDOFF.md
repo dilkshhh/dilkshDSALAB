@@ -1,5 +1,19 @@
 # Mech Royale — Complete Handoff Dossier
 
+> **Superseded in places — read [`docs/`](docs/README.md) first.**
+> This file is a frozen snapshot written for external review on 2026-11-21 and is
+> still the best single reference for the rules, the full protocol and the live
+> config (Appendices A and B). But several of its conclusions have since been
+> measured and corrected:
+> - the "survival ceiling" table's pacifist row is invalid (the fire gate could not
+>   suppress fire); a true pacifist scores **0.38**, not 1.69 — see `docs/FINDINGS.md` F5
+> - laser DPS is **131**, not 190 (charge + cooldown is a 2.4 s cycle) — F8
+> - a laser is **not** a damage upgrade; it is DPS-neutral with the gun — F8
+> - official scores are now known: 1.83 → 2.44 → **2.52** → 2.50, and local deltas
+>   transfer 1:1 while the offset moves with the policy — F17
+>
+> Where this file and `docs/` disagree, **`docs/` wins**.
+
 **Purpose.** This document contains everything a strong external reasoner needs to  
 independently re-derive a better policy for this game: the competition rules, the  
 full protocol, the live configuration, the arena, the current implementation, every  

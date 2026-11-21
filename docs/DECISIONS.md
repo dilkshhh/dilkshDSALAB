@@ -152,4 +152,36 @@ by ID. Commit messages point at the doc entry they change.
 **Consequence.** A new agent can reconstruct the entire reasoning from the repo
 without reading git history.
 
+---
+
+## D-12 — Reversal: the local instrument was never broken `[supersedes the "exhausted" note in STATE]`
+
+**Context.** Round 2 produced a run of local nulls and I concluded that local A/B
+could no longer rank candidates.
+
+**Decision.** Wrong. Two official results showed that **within an architecture,
+local Δ transfers 1:1** (roam predicted +0.02, delivered −0.02). The local nulls
+were real nulls, not instrument failure. What is *not* constant is the local→official
+**offset**, which is a property of the policy's aggression class and moved by ~+0.6
+when hunt was added.
+
+**Consequence.** Local remains the candidate generator and the free instrument; the
+official board is the fine one (±0.05 vs ±0.5). Judge a candidate by its local
+delta, but never assume the offset is fixed across architectures.
+
+---
+
+## D-13 — Revert the weapon roam, keep the knob
+
+**Context.** `a33d613` (early weapon roam) scored **2.50** officially against
+**2.52** for the build without it.
+
+**Decision.** Revert `roam_until` to 0.0 and `weapon_seek_range` to 130, so HEAD is
+behaviourally identical to the best-known build. Keep both knobs and the
+measurement, because the mechanism (8 % → 35 % weapon uptime) is real and a future
+policy may convert it.
+
+**Consequence.** HEAD = the 2.52 build. Nothing in the tree is a regression. The
+platform locks the best score at cutoff, so 2.52 is safe regardless.
+
 **Next:** [`EXTERNAL_REVIEWS.md`](EXTERNAL_REVIEWS.md) — what outside models said.

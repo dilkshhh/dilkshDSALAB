@@ -193,5 +193,38 @@ The same comparison reads +0.67 on one range and −0.10 on another. Per-range d
 swing by up to 1.2 score within a single config. Treating seeds as independent
 understates error badly. See the measurement protocol in `OPERATIONS.md`.
 
+## F17 — Local deltas transfer 1:1; the *offset* is set by architecture `[measured] E40`
+
+Four official results against their local predictions:
+
+| Commit | What | Local | Official | Offset |
+| --- | --- | --- | --- | --- |
+| `ac7f72a` | survival iteration | 1.9–2.1 | **1.83** | −0.2 |
+| `407c50e` | hunt v1 (aggression) | ~2.0 | **2.44** | +0.44 |
+| `7468dcb` | hunt v2 | 1.94 | **2.52** | +0.58 |
+| `a33d613` | early weapon roam | 1.96 | **2.50** | +0.54 |
+
+Two conclusions, and they are different in kind:
+
+1. **Within an architecture, local Δ ≈ official Δ.** The roam change predicted
+   +0.02 locally and delivered **−0.02** officially. Our long run of local nulls
+   was not a broken instrument — the changes really were null.
+2. **The offset is not a constant, it is a property of the policy.** Adding hunt
+   mode moved the offset by ~+0.6 without moving the local score. So "official =
+   local + 0.55" is only valid *within* the hunt era. Any change that alters the
+   policy's aggression class can move the offset again, in either direction.
+
+**Resolution.** Practice seeds are fixed for the event, so re-running the same bot
+varies only by slot and spawn. Two near-identical builds scored 2.52 and 2.50 —
+consistent with an official resolution of roughly **±0.05**, far finer than the
+local instrument's ±0.5. **The official board is the higher-resolution instrument.**
+It is also rate-limited to a few probes per hour, which is the only reason to use
+local at all: to generate candidates, not to rank them.
+
+**What this implies for the gap.** Qualification is 5.13 and the leader is 5.96. We
+are at 2.52. At 1:1 transfer we need **+2.6 local**, and the best local score any
+policy has ever produced here is ~2.1. No tuning closes that. It needs a mechanism
+we have not tried, not a better constant.
+
 **Next:** [`ARCHITECTURE.md`](ARCHITECTURE.md) — how the code implements (and
 mis-implements) the above.

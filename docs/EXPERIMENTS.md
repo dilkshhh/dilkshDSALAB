@@ -212,6 +212,10 @@ measured secondary-weapon uptime goes from **8 % to 35 %** of decisions (laser,
 **Inconclusive by score, positive on kills and on the mechanism.** 4× weapon uptime
 producing no damage increase is the interesting part — see E39.
 
+**Official outcome (E40): 2.50 against 2.52 for the build without it, i.e. −0.02.**
+Local predicted +0.02. The change is null and the default is reverted to
+`roam_until 0.0`. Weapon uptime is a real capability; it is not worth score.
+
 ### E38 — Gun-only control (`take_pickups: False`)
 If the secondary is worth carrying, removing it should hurt.
 
@@ -237,6 +241,33 @@ Raising it to 0.9 gives 294 damage / 2.33 s = 126 dps.
 Noise. The laser is at best ~15 % better than the gun at realistic hit rates, so
 **hypothesis H1 (a laser unlocks 5 kills) is dead.** That is the most important
 negative result of this round: weapon quality is not the missing 3×.
+
+---
+
+## Official results — the only measurements that count
+
+### E40 — Submission ledger
+
+| # | Commit | What it was | Local | Official | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| 1 | (initial) | starter-derived v0 | ~0.2 | **0.25** | baseline |
+| 2 | `ac7f72a` | survival iteration: drone-aggro break, kiting, no camping, reciprocal fire | 1.9–2.1 | **1.83** | +1.58 |
+| 3 | `407c50e` | hunt v1 (aggression) | ~2.0 | **2.44** | +0.61 |
+| 4 | `7468dcb` | hunt v2 (target the weakest, standoff 45) | 1.94 | **2.52** | +0.08 — best known |
+| 5 | `a33d613` | early weapon roam (`roam_until 45`) | 1.96 | **2.50** | −0.02, reverted |
+
+Reading:
+
+- **+0.61 from hunt v1** is the only large move we have ever made, and it was
+  invisible locally. Aggression is the lever, and the local proxy systematically
+  under-prices it.
+- **+0.08 from hunt v2, −0.02 from weapon roam**: the last three submissions have
+  been flat to two decimal places. We are on a plateau at ~2.5.
+- **Local prediction vs official**: the roam probe predicted +0.02 and delivered
+  −0.02. Within-architecture transfer is 1:1 (F17).
+- **Best known build is `7468dcb` at 2.52.** The platform locks the best score at
+  cutoff unless the submitter picks another, so nothing needs to be done to protect
+  it — but do not expect HEAD to beat it. HEAD is behaviourally identical to it.
 
 ---
 
