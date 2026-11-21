@@ -1,7 +1,10 @@
-# dilksh
+# Competition entry — all rights reserved
 
-A mech-arena agent in Go (module `pilot`).
+This repository is a private competition submission. It is **not** open source.
 
-- `pilot.go` — stdin/stdout JSON protocol loop and wire types
-- `strategy.go` — decision-making
-- `terrain.go` — map/geometry math
+No license is granted. No part of this code may be copied, reused, redistributed,
+modified, published, or used to train or operate any automated system or AI agent,
+in whole or in part, by any means. Viewing this repository grants no right to use
+its contents.
+
+© All rights reserved.
