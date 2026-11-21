@@ -505,7 +505,7 @@ class Brain:
         if w0 and w0.get("kind") == "gun" and w0.get("ammo", 12) == 0 and w0.get("reload", 0) == 0:
             act["reload"] = True
         # upgrade offer
-        pick = pick_upgrade(obs.get("offer"), p, me)
+        pick = pick_upgrade(obs.get("offer"), p, me, self.cfg)
         if pick is not None:
             act["pick"] = pick
         # weapon pickup

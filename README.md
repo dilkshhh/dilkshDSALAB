@@ -60,6 +60,8 @@ official practice score. **No official practice submission has been made yet.**
 
 | Experiment | Paired delta | Decision |
 | --- | --- | --- |
+| Exact upgrade effects, first mobility-heavy weights | −0.33 ± 0.17 (24 paired, harsh) / −0.08 ± 0.25 (mild) | rejected; over-weighted mobility/aim |
+| Exact upgrade effects, survival-weighted retune | +0.04 ± 0.09 (24 paired, harsh) / 0.00 ± 0.12 (mild) | neutral; retained for protocol correctness |
 | Protocol-first belief layer (D1/D2: server-tracked positions, uncertain sound sectors) | +0.04 ± 0.07 (24 paired, harsh) | neutral; retained for protocol correctness and as arbiter input |
 | Single torso-aim arbiter (D3) | +0.54 ± 0.28 (24 paired, harsh) / +0.71 ± 0.59 (24 paired, mild) | retained; positive but variance is high |
 | Combined D1/D2/D3 | +0.63 ± 0.25 (24 paired, harsh) / +1.50 ± 0.40 (24 paired, mild) | retained |

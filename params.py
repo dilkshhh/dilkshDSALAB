@@ -41,6 +41,7 @@ DEFAULT = {
     "lightning_energy_floor": 12.0,
     # --- economy -------------------------------------------------------
     "take_pickups": True,
+    "upgrade_exact": True,        # exact hello.config.upgrades marginal effects; false = legacy ranks
     "crate_farm": False,          # shooting crates is loud (320 m gun sound)
     "npc_farm": False,            # NPC drones shoot back and make noise
     "npc_avoid": 42.0,            # keep this distance from drones

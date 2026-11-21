@@ -4,7 +4,7 @@ from __future__ import annotations
 import math
 
 
-def upgrade_value(choice, params):
+def _legacy_upgrade_value(choice, params):
     uid = choice.get("id", "")
     if uid.startswith("plating"):
         return params["upgrade_plating"]
@@ -27,13 +27,121 @@ def upgrade_value(choice, params):
     return params["upgrade_weapon"]
 
 
-def pick_upgrade(offer, params, me):
+def _current_value(cfg, me, path):
+    """Current value of an effect path, from live stats or config."""
+    if path.startswith("mech."):
+        key = path[5:]
+        st = me.get("stats", {}) or {}
+        if key in st:
+            return float(st[key])
+        return float((cfg.get("mech", {}) or {}).get(key, 0.0))
+    if path.startswith("weapons."):
+        parts = path.split(".")
+        if len(parts) == 3:
+            _, kind, stat = parts
+            for w in me.get("weapons", []) or []:
+                if w and w.get("kind") == kind:
+                    return float((w.get("stats", {}) or {}).get(stat, 0.0))
+            return None
+    return None
+
+
+def _effect_value(path, old, new, held):
+    """Marginal value of one exact config effect, normalized to a common scale."""
+    d = new - old
+    if path == "mech.hp":
+        return 70.0 * d / max(1.0, old)
+    if path == "mech.armor":
+        return 60.0 * d / max(0.05, 1.0 - old)
+    if path in ("mech.walk_speed", "mech.boost_speed"):
+        return 9.0 * (new / max(1e-6, old) - 1.0) / 0.08
+    if path == "mech.energy":
+        return 8.0 * d / 30.0
+    if path == "mech.energy_regen":
+        return 5.0 * (new / max(1e-6, old) - 1.0) / 0.30
+    if path in ("mech.boost_drain", "mech.jet_drain"):
+        return 4.0 * (old / max(1e-6, new) - 1.0) / 0.25
+    if path == "mech.regen_per_s":
+        return 20.0 * (new / max(1e-6, old) - 1.0) / 0.60
+    if path == "mech.regen_delay":
+        return 12.0 * (old - new) / 1.5
+    if path in ("mech.turn_rate", "mech.pitch_rate"):
+        return 9.0 * (new / max(1e-6, old) - 1.0) / 0.30
+    if path == "mech.near_range_bonus":
+        return 4.0 * d / 15.0
+    if path == "mech.vision_bonus":
+        return 4.0 * d / 25.0
+    if path == "mech.hearing":
+        return 5.0 * (old / max(1e-6, new) - 1.0) / 1.0
+    if not path.startswith("weapons."):
+        return 0.0
+    if not held:
+        return 0.0
+    if path.endswith(".damage"):
+        return 22.0 * (new / max(1e-6, old) - 1.0) / 0.15
+    if path.endswith(".cooldown"):
+        return 18.0 * (old / max(1e-6, new) - 1.0) / 0.15
+    if path.endswith(".speed"):
+        return 8.0 * (new / max(1e-6, old) - 1.0) / 0.25
+    if path.endswith(".range"):
+        return 7.0 * (new / max(1e-6, old) - 1.0) / 0.15
+    if path.endswith(".mag"):
+        return 12.0 * d / 8.0
+    if path.endswith(".reload"):
+        return 10.0 * (old / max(1e-6, new) - 1.0) / 0.25
+    if path.endswith(".splash_radius"):
+        return 15.0 * (new / max(1e-6, old) - 1.0) / 0.30
+    if path.endswith(".charge"):
+        return 16.0 * (old / max(1e-6, new) - 1.0) / 0.33
+    if path.endswith(".pierce"):
+        return 15.0 * d
+    if path.endswith(".chain"):
+        return 12.0 * d
+    if path.endswith(".cone_deg"):
+        return 7.0 * (new / max(1e-6, old) - 1.0) / 0.20
+    if path.endswith(".energy"):
+        return 12.0 * (old / max(1e-6, new) - 1.0) / 0.54
+    return 0.5 * abs(d)
+
+
+def upgrade_value(choice, params, me=None, cfg=None, exact=True):
+    """Exact marginal value from hello.config.upgrades, or legacy fallback."""
+    uid = choice.get("id", "")
+    if not exact or not cfg or not me:
+        return _legacy_upgrade_value(choice, params)
+    table = {u.get("id"): u for u in (cfg.get("upgrades", []) or []) if u.get("id")}
+    u = table.get(uid)
+    if not u:
+        return _legacy_upgrade_value(choice, params)
+    owned = me.get("upgrades", []) or []
+    if u.get("max") is not None and owned.count(uid) >= int(u["max"]):
+        return -1e6
+    held = {w["kind"] for w in me.get("weapons", []) or [] if w}
+    if u.get("requires") and u["requires"] not in held:
+        return 0.0
+    total = 0.0
+    for eff in u.get("effects", []) or []:
+        path = eff.get("path", "")
+        old = _current_value(cfg, me, path)
+        if old is None:
+            continue
+        new = old
+        if "mul" in eff:
+            new *= float(eff["mul"])
+        if "add" in eff:
+            new += float(eff["add"])
+        total += _effect_value(path, old, new, bool(u.get("requires") in held if u.get("requires") else True))
+    return total
+
+
+def pick_upgrade(offer, params, me, cfg=None):
     if not offer or not offer.get("choices"):
         return None
     hp_frac = me["hp"] / max(1.0, me["max_hp"])
+    exact = bool(params.get("upgrade_exact", True))
     best_i, best_v = 0, -1e30
     for i, ch in enumerate(offer["choices"]):
-        v = upgrade_value(ch, params)
+        v = upgrade_value(ch, params, me, cfg, exact)
         # when badly hurt, healing matters more than raw max HP
         if ch.get("id", "").startswith("nanites") and hp_frac < 0.5:
             v += 2.0
