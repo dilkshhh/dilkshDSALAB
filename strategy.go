@@ -1404,7 +1404,7 @@ func (b *Agent) decide(o *Obs, act *Action) {
 				best, pick = r, i
 			}
 		}
-		act.Take = &pick
+		act.Pick = &pick
 	}
 
 	var gun, light, laser *Weapon
@@ -1933,10 +1933,10 @@ func (b *Agent) decide(o *Obs, act *Action) {
 			continue
 		}
 		id := p.ID
-		act.Pick = &id
+		act.Take = &id
 		if sec != "" && me.Weapons[0] != nil {
 			if sec == "laser" && opt(me.Weapons[1].Charge, 0) > 0 {
-				act.Pick = nil // don't drop a charging laser
+				act.Take = nil // don't drop a charging laser
 				break
 			}
 			slot := 1
