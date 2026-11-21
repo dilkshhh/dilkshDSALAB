@@ -20,7 +20,11 @@ free economy or favourable fights.
 | `params.py` | Tunable policy parameters; `BOT_PARAMS` env JSON overrides them for local A/B. |
 | `mechfight.py` | Official protocol wrapper from the organiser's starter kit. |
 | `mechfight.schema.json`, `check/`, `arena/` | Official kit files, used only for local conformance testing; excluded from the image. |
-| `sim/`, `tools/`, `tests/` | Local development harness; excluded from the image. |
+| `tools/example_bot.py` | Official starter bot, kept for reference; excluded from the image. |
+| `AUDIT.md` | Protocol fact/uncertainty ledger, architecture audit, observation/action maps and baseline. |
+
+`sim/` and `tests/` are **empty local placeholders** and are not in the public tree.
+The A/B simulator used for development is external and uncommitted (see Attribution).
 
 ## Attribution
 
