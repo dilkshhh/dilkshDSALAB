@@ -5,6 +5,12 @@ standard library only. Placement is the metric, so the policy is survival-first:
 stay inside the circle, avoid being found, break line of sight, and only take
 free economy or favourable fights.
 
+> **Working on this repo?** Start at [`AGENTS.md`](AGENTS.md), then
+> [`docs/STATE.md`](docs/STATE.md). The `docs/` directory is the living record of
+> what we believe, what we measured, and what we already ruled out — it is the
+> source of truth, and it supersedes anything below that contradicts it.
+> This README is the public-facing summary; `docs/` is the engineering one.
+
 ## Layout
 
 | Path | What it is |
@@ -149,3 +155,19 @@ was aggression 0.8 / cover_bias 0.25 / standoff 65 / hunt_hp 0.30 / quiet off:
 5 of 6 ranges non-negative, pooled ≈ +0.24 — real but modest, and **not clearly
 better than the hunter-v2 build already submitted**. Conclusion: this parameter
 space is close to exhausted; remaining gains are structural, not tunable.
+
+## Documentation system
+
+| Path | Contents |
+| --- | --- |
+| `AGENTS.md` | Entry point: reading order, non-negotiable rules, 60-second summary |
+| `docs/README.md` | The map and the conventions |
+| `docs/STATE.md` | Where the project stands, next actions, open questions |
+| `docs/FINDINGS.md` | What is true about the game, with evidence tags |
+| `docs/ARCHITECTURE.md` | File-by-file design, decision loop, invariants, defects |
+| `docs/EXPERIMENTS.md` | Every experiment with numbers, including rejections |
+| `docs/OPERATIONS.md` | Build, test, local harness, measurement protocol |
+| `docs/DECISIONS.md` | Why it is shaped this way, including reversals |
+| `docs/EXTERNAL_REVIEWS.md` | Two outside models reviewed this; what survived testing |
+| `HANDOFF.md` | Frozen self-contained snapshot (full protocol + config verbatim) |
+| `AUDIT.md` | Original protocol ledger: uncertainty classes A–E, defects D1–D14 |

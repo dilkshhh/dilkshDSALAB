@@ -1,19 +1,19 @@
 # Mech Royale — Complete Handoff Dossier
 
-**Purpose.** This document contains everything a strong external reasoner needs to
-independently re-derive a better policy for this game: the competition rules, the
-full protocol, the live configuration, the arena, the current implementation, every
-experiment we ran with its numbers, and the open problems. It is written so that
+**Purpose.** This document contains everything a strong external reasoner needs to  
+independently re-derive a better policy for this game: the competition rules, the  
+full protocol, the live configuration, the arena, the current implementation, every  
+experiment we ran with its numbers, and the open problems. It is written so that  
 you can reason from *this file alone* without repo access.
 
-**What I want back** (details in §15): a critique, a ranked list of structural
-changes with expected effect, and your own implementation of the decision policy
-— not a parameter tweak. Our own sweep already proved the parameter space is
+**What I want back** (details in §15): a critique, a ranked list of structural  
+changes with expected effect, and your own implementation of the decision policy  
+— not a parameter tweak. Our own sweep already proved the parameter space is  
 exhausted.
 
-**Status at time of writing.** 2026-11-21 13:41 UTC. Cutoff is 2026-11-22 20:00
-GMT+4 = **16:00 UTC, ~26 hours away**. Official practice scores so far: 0.25 →
-1.83 → 2.44, then `7468dcb` scored higher but the exact number was not recorded.
+**Status at time of writing.** 2026-11-21 13:41 UTC. Cutoff is 2026-11-22 20:00  
+GMT+4 = **16:00 UTC, ~26 hours away**. Official practice scores so far: 0.25 →  
+1.83 → 2.44, then `7468dcb` scored higher but the exact number was not recorded.  
 Leader 5.96. 206 teams.
 
 ---
@@ -21,37 +21,37 @@ Leader 5.96. 206 teams.
 ## 0. Executive summary — read this even if you read nothing else
 
 1. **The scoring identity.** `score = 16 − place`, and `place = 1 + (number of
-   mechs that died before you)`. Therefore **score = the number of mechs that
+   mechs that died before you)`. Therefore **score = the number of mechs that  
    died before you**, per match, averaged over 48 matches. Maximum 15.
-2. **The 15 opponents never fight each other.** They are one squad with shared
-   vision. So every opponent death is caused by *us* or by the *environment*
-   (NPC drones, zone, falls). Measured locally: `score ≈ kills + 0.7`, i.e. about
+2. **The 15 opponents never fight each other.** They are one squad with shared  
+   vision. So every opponent death is caused by *us* or by the *environment*  
+   (NPC drones, zone, falls). Measured locally: `score ≈ kills + 0.7`, i.e. about  
    70 % of our score is kills and 30 % is environmental attrition.
-3. **Consequence: kills and survival time are the only two terms, and fighting is
-   free.** We verified the identity directly: over 16 matches, mean score 2.00 =
-   1.31 kills + 0.69 environmental deaths. And we verified that fighting costs
-   *nothing* in survival: a bot configured to never fire and never hunt still dies
-   at 56 s, versus 59 s for the default. **Survival is capped at ~60–75 s for every
-   policy we have tried (9 variants), so there is no survival reserve left to
-   trade away.** The binding constraint is damage throughput inside that ~60 s
-   window: we deal ~3200 damage and convert 1.3 kills. Five kills needs ~10,000
+3. **Consequence: kills and survival time are the only two terms, and fighting is  
+   free.** We verified the identity directly: over 16 matches, mean score 2.00 =  
+   1.31 kills + 0.69 environmental deaths. And we verified that fighting costs  
+   *nothing* in survival: a bot configured to never fire and never hunt still dies  
+   at 56 s, versus 59 s for the default. **Survival is capped at ~60–75 s for every  
+   policy we have tried (9 variants), so there is no survival reserve left to  
+   trade away.** The binding constraint is damage throughput inside that ~60 s  
+   window: we deal ~3200 damage and convert 1.3 kills. Five kills needs ~10,000  
    damage, which is not reachable with the starting gun alone.
-4. **The game is a sequence of duels, not a battle royale.** The squad escalates:
-   "one early, more as you thin them out, all of them late" (verbatim, track
+4. **The game is a sequence of duels, not a battle royale.** The squad escalates:  
+   "one early, more as you thin them out, all of them late" (verbatim, track  
    page). Early game is a 1v1 gift; late game is a 1v15 you cannot win.
-5. **Kills snowball.** Each cube is +4 % max HP and +4 % damage (capped +40 %),
-   and a kill drops 3 cubes. Killing early makes later kills cheaper. This is the
+5. **Kills snowball.** Each cube is +4 % max HP and +4 % damage (capped +40 %),  
+   and a kill drops 3 cubes. Killing early makes later kills cheaper. This is the  
    only multiplicative growth in the game and we currently do not exploit it.
-6. **Weapon quality is the real damage ceiling.** 1400 HP / 45 damage = 31 gun
-   hits ≈ 7.4 s of perfect fire per kill, and we only get ~20 s of trigger time
-   before we die. The laser is 315 damage (4.4 hits) at 190 dps — roughly triple
-   the gun. Forty weapons lie on the floor and we only pick up the ones we happen
-   to walk over. Early weapon acquisition measured **+0.46 on train, +0.10 on
+6. **Weapon quality is the real damage ceiling.** 1400 HP / 45 damage = 31 gun  
+   hits ≈ 7.4 s of perfect fire per kill, and we only get ~20 s of trigger time  
+   before we die. The laser is 315 damage (4.4 hits) at 190 dps — roughly triple  
+   the gun. Forty weapons lie on the floor and we only pick up the ones we happen  
+   to walk over. Early weapon acquisition measured **+0.46 on train, +0.10 on  
    holdout** (weak, see §9.6).
-7. **Measurement is the hard part.** Seed *range* behaves as a random effect: the
-   same change reads +0.67 on one range and −0.10 on another. Effects below ~0.5
-   score are unresolvable at feasible sample sizes. We already published one false
-   positive (focus fire) and had to retract it. Any claim you make must survive
+7. **Measurement is the hard part.** Seed *range* behaves as a random effect: the  
+   same change reads +0.67 on one range and −0.10 on another. Effects below ~0.5  
+   score are unresolvable at feasible sample sizes. We already published one false  
+   positive (focus fire) and had to retract it. Any claim you make must survive  
    per-range reporting on ≥3 ranges and a holdout.
 
 ---
@@ -60,87 +60,88 @@ Leader 5.96. 206 teams.
 
 ### 1.1 Track facts (verbatim from the track page unless marked)
 
-| Item | Value |
-| --- | --- |
-| Event | Builders Buildathon, **Mech Royale** track |
-| Game | 16-mech 3D battle royale on the Ohio State campus (Ohio Stadium → the Oval) |
-| Zone | closes over ~7 minutes (6 phases, 480 s match) |
-| Metric | **placement points, higher is better** = `mean(16 − place)` over a run |
-| Baseline to beat | **1.15** (the kit's Python example bot) |
-| Scorer version | `builders-3` |
-| Practice run | **48 matches** vs 15 house bots |
-| House bots | **4 easy, 4 medium, 4 hard, 3 expert — acting as one squad** |
-| Squad behaviour | *"they share vision, never fight each other, and hunt you weakest first (one early, more as you thin them out, all of them late)"* |
-| Seeds | **private and fixed all event.** The bot never sees the seed; slot and spawn vary each match |
-| Submission limit | **4 per hour per team** (the human operator is additionally self-limiting to 2/h to keep a slot free) |
-| Build | linux/amd64, network on during build, ≤10 min build, repo ≤20 MB at the submitted commit |
-| Repo | must stay **public** with every submitted commit until results are published; finalists are **rebuilt** |
-| Ties | equal scores rank the **earlier submission** first |
-| Cutoff | **Sun 8:00 PM GMT+4** |
-| Qualification | top **32** → 16 qualifying FFAs on new seeds → top **16** → 64-match FFA series on new seeds |
-| Live final | the last 4 play live at the venue, counted the same |
-| Ranking | series mean alone; earlier submissions break ties; non-finalists shown as negative |
+| Item             | Value                                                                                                                              |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Event            | Builders Buildathon, **Mech Royale** track                                                                                         |
+| Game             | 16-mech 3D battle royale on the Ohio State campus (Ohio Stadium → the Oval)                                                        |
+| Zone             | closes over ~7 minutes (6 phases, 480 s match)                                                                                     |
+| Metric           | **placement points, higher is better** = `mean(16 − place)` over a run                                                             |
+| Baseline to beat | **1.15** (the kit's Python example bot)                                                                                            |
+| Scorer version   | `builders-3`                                                                                                                       |
+| Practice run     | **48 matches** vs 15 house bots                                                                                                    |
+| House bots       | **4 easy, 4 medium, 4 hard, 3 expert — acting as one squad**                                                                       |
+| Squad behaviour  | *"they share vision, never fight each other, and hunt you weakest first (one early, more as you thin them out, all of them late)"* |
+| Seeds            | **private and fixed all event.** The bot never sees the seed; slot and spawn vary each match                                       |
+| Submission limit | **4 per hour per team** (the human operator is additionally self-limiting to 2/h to keep a slot free)                              |
+| Build            | linux/amd64, network on during build, ≤10 min build, repo ≤20 MB at the submitted commit                                           |
+| Repo             | must stay **public** with every submitted commit until results are published; finalists are **rebuilt**                            |
+| Ties             | equal scores rank the **earlier submission** first                                                                                 |
+| Cutoff           | **Sun 8:00 PM GMT+4**                                                                                                              |
+| Qualification    | top **32** → 16 qualifying FFAs on new seeds → top **16** → 64-match FFA series on new seeds                                       |
+| Live final       | the last 4 play live at the venue, counted the same                                                                                |
+| Ranking          | series mean alone; earlier submissions break ties; non-finalists shown as negative                                                 |
 
-**Rule that matters and is easy to miss:** practice seeds are *fixed for the whole
-event*. Every submission is therefore measured on the same 48 seeds with only
-slot/spawn varying. That makes official scores more comparable across submissions
+**Rule that matters and is easy to miss:** practice seeds are *fixed for the whole  
+event*. Every submission is therefore measured on the same 48 seeds with only  
+slot/spawn varying. That makes official scores more comparable across submissions  
 than fresh seeds would be — it is closer to a paired test than it looks.
 
 **Rules that shape strategy:**
-- A bot that crashes or stops answering stays in the match as a sitting target and
+
+- A bot that crashes or stops answering stays in the match as a sitting target and  
   is *scored*, not rejected. So a timing failure is not a DQ, it is a 0-point match.
 - Failed builds/checks are rejected and never affect your best score. Free retries.
 - "Your chosen submission (your best unless you pick another) locks" at cutoff.
 
 ### 1.2 Leaderboard snapshot (2026-11-21)
 
-| Rank | Team | Score |
-| --- | --- | --- |
-| 1 | `azing` | 5.96 |
-| 16 | — | 5.38 |
-| 32 | — | 5.13 |
-| 48 | — | 4.88 |
-| 197 | us (first submission) | 1.83 |
-| — | teams | 206 |
+| Rank | Team                  | Score |
+| ---- | --------------------- | ----- |
+| 1    | `azing`               | 5.96  |
+| 16   | —                     | 5.38  |
+| 32   | —                     | 5.13  |
+| 48   | —                     | 4.88  |
+| 197  | us (first submission) | 1.83  |
+| —    | teams                 | 206   |
 
 ### 1.3 Our submission history
 
-| Commit | What it was | Official score |
-| --- | --- | --- |
-| (initial) | starter-derived v0 | 0.25 |
-| `ac7f72a` | survival iteration: drone-aggro break, kiting, no static camping, reciprocal fire | **1.83** |
-| `407c50e` | hunt mode v1 (close on nearest known enemy) | **2.44** |
-| `7468dcb` | hunt v2 (target the weakest, standoff 45 m) | "jumped a bit" — number not recorded |
+| Commit    | What it was                                                                       | Official score                       |
+| --------- | --------------------------------------------------------------------------------- | ------------------------------------ |
+| (initial) | starter-derived v0                                                                | 0.25                                 |
+| `ac7f72a` | survival iteration: drone-aggro break, kiting, no static camping, reciprocal fire | **1.83**                             |
+| `407c50e` | hunt mode v1 (close on nearest known enemy)                                       | **2.44**                             |
+| `7468dcb` | hunt v2 (target the weakest, standoff 45 m)                                       | "jumped a bit" — number not recorded |
 
-Local prediction for `7468dcb` was ~2.0–2.2 (see §14 calibration), so the official
+Local prediction for `7468dcb` was ~2.0–2.2 (see §14 calibration), so the official  
 number is probably 2.5–3.0. We do not have it.
 
 ### 1.4 What the score means in places
 
-`place = 16 − score`, and `kills ≈ score − 0.7` (local measurement of the
+`place = 16 − score`, and `kills ≈ score − 0.7` (local measurement of the  
 environmental component).
 
-| Score | Avg place | Bots dead before us | Implied kills |
-| --- | --- | --- | --- |
-| 15.0 | 1 | 15 | win |
-| 5.96 (leader) | 10.0 | 5.96 | ~5.3 |
-| 5.38 (rank 16) | 10.6 | 5.38 | ~4.7 |
-| 5.13 (rank 32) | 10.9 | 5.13 | ~4.4 |
-| 4.88 (rank 48) | 11.1 | 4.88 | ~4.2 |
-| 2.44 (us) | 13.6 | 2.44 | ~1.7 |
-| 1.83 (us, earlier) | 14.2 | 1.83 | ~1.1 |
-| 1.15 (starter) | 14.9 | 1.15 | ~0.5 |
+| Score              | Avg place | Bots dead before us | Implied kills |
+| ------------------ | --------- | ------------------- | ------------- |
+| 15.0               | 1         | 15                  | win           |
+| 5.96 (leader)      | 10.0      | 5.96                | ~5.3          |
+| 5.38 (rank 16)     | 10.6      | 5.38                | ~4.7          |
+| 5.13 (rank 32)     | 10.9      | 5.13                | ~4.4          |
+| 4.88 (rank 48)     | 11.1      | 4.88                | ~4.2          |
+| 2.44 (us)          | 13.6      | 2.44                | ~1.7          |
+| 1.83 (us, earlier) | 14.2      | 1.83                | ~1.1          |
+| 1.15 (starter)     | 14.9      | 1.15                | ~0.5          |
 
-The distribution is discrete (16 places), so 48 matches give a granularity of
-0.021. Official score noise is roughly ±0.3–0.5 (see §9.4), which means the
-1.83 → 2.44 jump is probably real but the 2.44 → 2.6 kind of move is not
+The distribution is discrete (16 places), so 48 matches give a granularity of  
+0.021. Official score noise is roughly ±0.3–0.5 (see §9.4), which means the  
+1.83 → 2.44 jump is probably real but the 2.44 → 2.6 kind of move is not  
 distinguishable without several submissions.
 
 ---
 
 ## 2. The scoring identity, expanded
 
-This is the single most important analytical result in this document. Derive it
+This is the single most important analytical result in this document. Derive it  
 yourself from §4 of the protocol and check it:
 
 - `place` is the death order: first to die is 16th, last alive is 1st.
@@ -148,99 +149,100 @@ yourself from §4 of the protocol and check it:
 - If `p−1` mechs died before you, `place = p`, so `score = 16 − p = 15 − (p−1)`.
 - Equivalently: **score = number of mechs that died before you.**
 
-Since the 15 house bots are one squad that never fights itself, the only ways an
+Since the 15 house bots are one squad that never fights itself, the only ways an  
 opponent dies are:
 
-| Cause | Controllable? | Measured rate |
-| --- | --- | --- |
-| We kill it | yes, directly | **1.31/match** |
-| NPC drone kills it | indirectly (lure/aggro) | 11 deaths / 16 matches |
-| Zone kills it | indirectly (lure/delay) | 0 observed |
-| Fall / self-splash / drowning | indirectly | 0 observed |
-| Total environmental | — | **0.69/match** |
+| Cause                         | Controllable?           | Measured rate          |
+| ----------------------------- | ----------------------- | ---------------------- |
+| We kill it                    | yes, directly           | **1.31/match**         |
+| NPC drone kills it            | indirectly (lure/aggro) | 11 deaths / 16 matches |
+| Zone kills it                 | indirectly (lure/delay) | 0 observed             |
+| Fall / self-splash / drowning | indirectly              | 0 observed             |
+| Total environmental           | —                       | **0.69/match**         |
 
-**Verified on 16 matches:** mean score **2.00** = 1.31 kills + 0.69 environmental
+**Verified on 16 matches:** mean score **2.00** = 1.31 kills + 0.69 environmental  
 deaths, to two decimal places. The identity is exact, not an approximation.
 
 ### 2.1 The survival ceiling (measured, and it is the surprise)
 
-We assumed survival was the thing to buy. It is not buyable. Nine policy variants
+We assumed survival was the thing to buy. It is not buyable. Nine policy variants  
 over 16 seeds each, same seed set, same opponents:
 
-| Policy | Death time | Score | Kills |
-| --- | --- | --- | --- |
-| default | 59 s | 2.00 | 1.38 |
-| **true pacifist** (never fire, never hunt) | **56 s** | 1.69 | 1.19 |
-| coward (no fire, no hunt, kite always) | 58 s | 1.75 | 1.31 |
-| no kiting, no hunting | **44 s** | 1.38 | 1.19 |
-| hide in cover always | 66 s | 2.00 | 1.50 |
-| kite always, range 200 | 74 s | 1.88 | 1.44 |
-| turtle (kite hard, high HP floor) | 73 s | 1.75 | 1.25 |
+| Policy                                     | Death time | Score | Kills |
+| ------------------------------------------ | ---------- | ----- | ----- |
+| default                                    | 59 s       | 2.00  | 1.38  |
+| **true pacifist** (never fire, never hunt) | **56 s**   | 1.69  | 1.19  |
+| coward (no fire, no hunt, kite always)     | 58 s       | 1.75  | 1.31  |
+| no kiting, no hunting                      | **44 s**   | 1.38  | 1.19  |
+| hide in cover always                       | 66 s       | 2.00  | 1.50  |
+| kite always, range 200                     | 74 s       | 1.88  | 1.44  |
+| turtle (kite hard, high HP floor)          | 73 s       | 1.75  | 1.25  |
 
 Read that table carefully:
 
-1. **Fighting costs nothing.** A bot that never fires dies at 56 s; the default,
-   which fights continuously, dies at 59 s. There is no survival/aggression
+1. **Fighting costs nothing.** A bot that never fires dies at 56 s; the default,  
+   which fights continuously, dies at 59 s. There is no survival/aggression  
    trade-off to optimise — aggression is free.
 2. **Kiting is the only thing that buys life**, and it buys ~15 s (44 s → 74 s).
-3. **Nothing reaches 100 s.** Eight variants, and the best is 74 s. Our survival is
+3. **Nothing reaches 100 s.** Eight variants, and the best is 74 s. Our survival is  
    not a tuning problem; it is an architectural wall.
 
 Three consequences:
 
-1. **There is no survival reserve to trade away.** Every "be more careful"
+1. **There is no survival reserve to trade away.** Every "be more careful"  
    experiment was doomed: the careful variants die at the same time or sooner.
-2. **Score is a damage-throughput problem inside a fixed ~60 s window.** 3200
-   damage → 1.3 kills. Five kills needs ~10,000 damage in 60 s = 167 sustained dps,
-   which is 89 % trigger time with the gun and zero misses. **Impossible with the
+2. **Score is a damage-throughput problem inside a fixed ~60 s window.** 3200  
+   damage → 1.3 kills. Five kills needs ~10,000 damage in 60 s = 167 sustained dps,  
+   which is 89 % trigger time with the gun and zero misses. **Impossible with the  
    gun.** It requires the laser (190 dps) or the mortar (200 + splash).
-3. **Therefore the leverage is: weapon quality, hit rate, and target selection** —
+3. **Therefore the leverage is: weapon quality, hit rate, and target selection** —  
    not positioning for safety.
 
 ### 2.1 The escalation rule is an explicit difficulty schedule
 
 "one early, more as you thin them out, all of them late."
 
+
 - The squad's *hunter count* is a function of how many of them we have killed.
 - Early: 1 hunter → a winnable 1v1, against (probably) a weak bot.
 - Mid: killing N brings more → each kill raises the marginal risk of the next.
 - Late: all 15 → unwinnable; survival only.
 
-This implies an **optimal kill rate**, not "kill as fast as possible": converting
-HP into kills faster than the escalation raises incoming pressure. It also implies
+This implies an **optimal kill rate**, not "kill as fast as possible": converting  
+HP into kills faster than the escalation raises incoming pressure. It also implies  
 kills should be **front-loaded**, because the same kill costs less early.
 
-**Open interpretation (class D hypothesis):** "hunt you weakest first" most
-plausibly means the squad sends *its weakest member* first, then escalates. If
-true, the first hunter is the single easiest kill in the match and should be
-farmed deliberately. The alternative reading — they target the weakest *mech*
-(us, when hurt) — would instead mean low HP attracts more hunters, which changes
+**Open interpretation (class D hypothesis):** "hunt you weakest first" most  
+plausibly means the squad sends *its weakest member* first, then escalates. If  
+true, the first hunter is the single easiest kill in the match and should be  
+farmed deliberately. The alternative reading — they target the weakest *mech*  
+(us, when hurt) — would instead mean low HP attracts more hunters, which changes  
 the retreat calculus. This is worth 30 minutes of testing and we have not done it.
 
 ---
 
 ## 3. Runtime contract
 
-| Constraint | Value |
-| --- | --- |
-| Decision budget | **50 ms** wall, measured server-side from `obs` send to action read |
-| CPU | 1 core (hard cap) |
-| RAM | 512 MB, no swap |
-| Processes | ≤128 threads/processes |
-| Network | **none** at runtime |
-| Filesystem | read-only except `/tmp`, 64 MB |
-| User | uid 65534, no capabilities |
-| Map | mounted read-only at `/arena` |
-| Platform | `linux/amd64` |
-| stdout | protocol only, one JSON object per line, ≤64 KiB, flushed |
-| stderr | logs; the tail is shown to the submitter if the conformance check fails |
-| Match clock | 480 s, 20 Hz sim, one decision per 2 ticks (10 Hz) |
-| Late answer | mech keeps `move`/`boost`/`aim` for `coast_s` = 1 s, then idles |
-| Crash | mech idles for the rest of the match, still scored |
+| Constraint      | Value                                                                   |
+| --------------- | ----------------------------------------------------------------------- |
+| Decision budget | **50 ms** wall, measured server-side from `obs` send to action read     |
+| CPU             | 1 core (hard cap)                                                       |
+| RAM             | 512 MB, no swap                                                         |
+| Processes       | ≤128 threads/processes                                                  |
+| Network         | **none** at runtime                                                     |
+| Filesystem      | read-only except `/tmp`, 64 MB                                          |
+| User            | uid 65534, no capabilities                                              |
+| Map             | mounted read-only at `/arena`                                           |
+| Platform        | `linux/amd64`                                                           |
+| stdout          | protocol only, one JSON object per line, ≤64 KiB, flushed               |
+| stderr          | logs; the tail is shown to the submitter if the conformance check fails |
+| Match clock     | 480 s, 20 Hz sim, one decision per 2 ticks (10 Hz)                      |
+| Late answer     | mech keeps `move`/`boost`/`aim` for `coast_s` = 1 s, then idles         |
+| Crash           | mech idles for the rest of the match, still scored                      |
 
-Timing is the sharpest engineering constraint: at 10 Hz with a 50 ms budget you
-have ~5 ms of comfortable headroom per decision if you want p99 safely inside.
-Our current p99 is 4.3 ms (native) / 24.7 ms (Docker, 1 CPU, cold cache), max
+Timing is the sharpest engineering constraint: at 10 Hz with a 50 ms budget you  
+have ~5 ms of comfortable headroom per decision if you want p99 safely inside.  
+Our current p99 is 4.3 ms (native) / 24.7 ms (Docker, 1 CPU, cold cache), max  
 106 ms on one decision out of 300 in the sandbox check (allowed: ≤2 % late).
 
 ---
@@ -260,243 +262,247 @@ server → bot   {"type":"end", "place":P, "kills":K}
 
 Facts that shaped our design (each is a protocol fact unless marked):
 
-- `hello.config` is the **complete rule set**. Read every number from it; never
+- `hello.config` is the **complete rule set**. Read every number from it; never  
   hard-code. Balance patches are config patches.
-- `hello.seed` is **slot-fixed and is NOT the match seed**. It carries no
+- `hello.seed` is **slot-fixed and is NOT the match seed**. It carries no  
   information about the match. Using it as a prior is a bug (we removed that).
-- `obs.mechs` keeps a previously-seen mech's **real current position** for
-  `vision.memory_s` (5 s) after it leaves view. Dead reckoning on top of that is
+- `obs.mechs` keeps a previously-seen mech's **real current position** for  
+  `vision.memory_s` (5 s) after it leaves view. Dead reckoning on top of that is  
   double-counting and was our defect D1.
 - `beams` carry the shooter id (`by`); `projectiles` carry **no** shooter id.
-- `events` are about *us* only: `damaged` (with `by`, `bearing`, `rear`), `hit`,
+- `events` are about *us* only: `damaged` (with `by`, `bearing`, `rear`), `hit`,  
   `effect`, `kill`, `drop`, `pickup`, `upgrade`, `took`, `dropped`, `take_failed`.
-- Enemy HP is visible (`show_enemy_hp: true`); enemy energy, ammo, cooldowns,
+- Enemy HP is visible (`show_enemy_hp: true`); enemy energy, ammo, cooldowns,  
   reload state and upgrade lists are **never** exposed.
-- Sound gives a world-frame bearing with σ = 7°, a coarse distance class
-  (`near`<60, `mid`<160, `far`), an `age`, and a kind — no source id, and your own
+- Sound gives a world-frame bearing with σ = 7°, a coarse distance class  
+  (`near`<60, `mid`<160, `far`), an `age`, and a kind — no source id, and your own  
   sounds are omitted.
-- Vision: 45 m proximity in any direction, or 200 m inside a 120° wedge around
-  the **actual torso aim** (not the commanded aim). Buildings block; canopy is
-  soft (blocks with probability 0.35, at most 0.25 s of exposure); trunks block
+- Vision: 45 m proximity in any direction, or 200 m inside a 120° wedge around  
+  the **actual torso aim** (not the commanded aim). Buildings block; canopy is  
+  soft (blocks with probability 0.35, at most 0.25 s of exposure); trunks block  
   sight but not shots.
-- One torso, two weapon slots. `fire[0]` is the arm gun, `fire[1]` is the
-  secondary (mortar/laser/lightning). Both shots leave along the *actual* torso
-  aim, so the two slots must agree on an aim or one of them misses. Our arbiter
+- One torso, two weapon slots. `fire[0]` is the arm gun, `fire[1]` is the  
+  secondary (mortar/laser/lightning). Both shots leave along the *actual* torso  
+  aim, so the two slots must agree on an aim or one of them misses. Our arbiter  
   (defect D3 fix) enforces this.
-- `fire=[false,true]` on a laser means "hold the charge", not "shoot". We
+- `fire=[false,true]` on a laser means "hold the charge", not "shoot". We  
   misread this once; it matters for any charge logic.
-- Regen requires 5 s with **no damage dealt or taken**, then 45 HP/s, and does
-  not work outside the zone. Zone damage bypasses armor and resets the timer.
+- Regen requires 5 s with **no damage dealt or taken**, then 45 HP/s, and does  
+  not work outside the zone. Zone damage bypasses armor and resets the timer.  
   This makes disengage-and-heal a real mechanic that we do not model well.
-- Rear hits outside a 180° front arc deal ×1.5. Facing an attacker is defensive,
+- Rear hits outside a 180° front arc deal ×1.5. Facing an attacker is defensive,  
   which is why we hold the torso on the nearest threat even when not firing.
 
 ---
 
 ## 5. Live configuration (verbatim in Appendix B)
 
-Everything below was extracted from `check/stream.jsonl.gz` — it is the *real*
+Everything below was extracted from `check/stream.jsonl.gz` — it is the *real*  
 `hello.config` the scorer sends, not a default file.
 
 ### 5.1 Mech
 
-| Field | Value | Field | Value |
-| --- | --- | --- | --- |
-| radius | 2.5 | height | 9 |
-| eye_height | 8 | muzzle_height | 7 |
-| hp | 1400 | energy | 100 |
-| walk_speed | 11.7 | boost_speed | 19.5 |
-| ground_accel | 58.5 | air_accel | 12 |
-| gravity | 22 | jump_speed | 11 |
-| jet_accel | 34 | max_rise_speed | 10 |
-| step_up | 1.2 | max_slope_deg | 50 |
-| energy_regen | 18 | energy_regen_delay | 0.6 |
-| boost_drain | 17 | jet_drain | 15 |
-| turn_rate | 4 rad/s | pitch_rate | 3 rad/s |
-| min_pitch / max_pitch | −0.7 / 1.3 | regen_delay | 5 |
-| regen_per_s | 45 | charge_move_mult | 0.5 |
-| self_damage_mult | 0.5 | armor | 0 |
-| rear_mult | 1.5 | front_arc_deg | 180 |
+| Field                 | Value      | Field              | Value   |
+| --------------------- | ---------- | ------------------ | ------- |
+| radius                | 2.5        | height             | 9       |
+| eye_height            | 8          | muzzle_height      | 7       |
+| hp                    | 1400       | energy             | 100     |
+| walk_speed            | 11.7       | boost_speed        | 19.5    |
+| ground_accel          | 58.5       | air_accel          | 12      |
+| gravity               | 22         | jump_speed         | 11      |
+| jet_accel             | 34         | max_rise_speed     | 10      |
+| step_up               | 1.2        | max_slope_deg      | 50      |
+| energy_regen          | 18         | energy_regen_delay | 0.6     |
+| boost_drain           | 17         | jet_drain          | 15      |
+| turn_rate             | 4 rad/s    | pitch_rate         | 3 rad/s |
+| min_pitch / max_pitch | −0.7 / 1.3 | regen_delay        | 5       |
+| regen_per_s           | 45         | charge_move_mult   | 0.5     |
+| self_damage_mult      | 0.5        | armor              | 0       |
+| rear_mult             | 1.5        | front_arc_deg      | 180     |
 
 Derived numbers worth carrying in your head:
+
 - 1400 HP at 45 dmg/shot = **31 gun hits** to kill; 315 laser = 4.4 hits.
 - Walk 11.7 m/s crosses the 200 m vision range in 17 s.
-- Boost 19.5 m/s but 17 energy/s against 100 energy → ~5.9 s of boost, then a
+- Boost 19.5 m/s but 17 energy/s against 100 energy → ~5.9 s of boost, then a  
   0.6 s delay + 18/s refill.
-- Time-to-kill with the gun at 0.24 s cooldown and a 12-round mag: 12 shots =
-  540 damage in 2.9 s, then 2.4 s reload. So ~10 s of sustained fire per kill,
-  assuming every shot hits. **This is why kills are hard and why the laser and
+- Time-to-kill with the gun at 0.24 s cooldown and a 12-round mag: 12 shots =  
+  540 damage in 2.9 s, then 2.4 s reload. So ~10 s of sustained fire per kill,  
+  assuming every shot hits. **This is why kills are hard and why the laser and  
   mortar matter.**
 
 ### 5.2 Weapons
 
-| | gun | mortar | laser | lightning |
-| --- | --- | --- | --- | --- |
-| damage | 45 | 200 | 315 | 60 |
-| cooldown | 0.24 | 2.6 | 1.65 | 0.25 |
-| speed | 252 m/s | 72 m/s | hitscan | instant |
-| range | 230 | (ttl 7 s) | 280 | 45 |
-| mag | 12 | — | — | — |
-| reload | 2.4 | — | — | — |
-| special | spread 0.6° | splash 160 @ r7, edge 0.3, gravity 22, knock 16/9, energy drain 45 | charge 0.75 s, min_charge 0.15, min_frac 0.35, hold 2 s, cookoff 0.6 | cone 30°, chain 2 @ 14 m, falloff 0.7, 3 energy/shot |
+|          | gun         | mortar                                                             | laser                                                                | lightning                                            |
+| -------- | ----------- | ------------------------------------------------------------------ | -------------------------------------------------------------------- | ---------------------------------------------------- |
+| damage   | 45          | 200                                                                | 315                                                                  | 60                                                   |
+| cooldown | 0.24        | 2.6                                                                | 1.65                                                                 | 0.25                                                 |
+| speed    | 252 m/s     | 72 m/s                                                             | hitscan                                                              | instant                                              |
+| range    | 230         | (ttl 7 s)                                                          | 280                                                                  | 45                                                   |
+| mag      | 12          | —                                                                  | —                                                                    | —                                                    |
+| reload   | 2.4         | —                                                                  | —                                                                    | —                                                    |
+| special  | spread 0.6° | splash 160 @ r7, edge 0.3, gravity 22, knock 16/9, energy drain 45 | charge 0.75 s, min_charge 0.15, min_frac 0.35, hold 2 s, cookoff 0.6 | cone 30°, chain 2 @ 14 m, falloff 0.7, 3 energy/shot |
 
 Notes that matter:
-- Mortar is the only area weapon (160 splash in a 7 m radius) → **the only tool
+
+- Mortar is the only area weapon (160 splash in a 7 m radius) → **the only tool  
   that punishes the squad for clustering on us**, which they do by design late.
-- Laser is the highest burst in the game and is telegraphed for 0.75 s, so it is
+- Laser is the highest burst in the game and is telegraphed for 0.75 s, so it is  
   best used as an opener at range or on a target already committed to a fight.
-- Lightning is a 45 m finisher: 60 damage per 0.25 s is 240 dps at contact range,
+- Lightning is a 45 m finisher: 60 damage per 0.25 s is 240 dps at contact range,  
   but it costs energy and interrupts laser charge.
-- Only the gun is guaranteed. Mortar/laser/lightning come from 40 floor pickups,
+- Only the gun is guaranteed. Mortar/laser/lightning come from 40 floor pickups,  
   36 crates (50 % weapon chance) and death drops.
 
 ### 5.3 Zone
 
-| Phase | Hold | Shrink | Radius | DPS |
-| --- | --- | --- | --- | --- |
-| start | — | — | 560 @ (41.3, −72.8) | 0 |
-| 1 | 60 | 50 | 380 | 20 |
-| 2 | 45 | 40 | 240 | 35 |
-| 3 | 35 | 35 | 140 | 60 |
-| 4 | 30 | 30 | 70 | 100 |
-| 5 | 25 | 25 | 25 | 160 |
-| 6 | 15 | 25 | 0 | 260 |
+| Phase | Hold | Shrink | Radius              | DPS |
+| ----- | ---- | ------ | ------------------- | --- |
+| start | —    | —      | 560 @ (41.3, −72.8) | 0   |
+| 1     | 60   | 50     | 380                 | 20  |
+| 2     | 45   | 40     | 240                 | 35  |
+| 3     | 35   | 35     | 140                 | 60  |
+| 4     | 30   | 30     | 70                  | 100 |
+| 5     | 25   | 25     | 25                  | 160 |
+| 6     | 15   | 25     | 0                   | 260 |
 
-Total 480 s. The arena is 1067 × 722 m, so the starting circle covers a fraction
-of it and the first shrink is the only one that allows long rotations. By phase 4
-(radius 70) the match is a knife fight in ~150 m of space; at radius 25 everything
-is inside 50 m of everything. **All late-game decisions are therefore decided by
+Total 480 s. The arena is 1067 × 722 m, so the starting circle covers a fraction  
+of it and the first shrink is the only one that allows long rotations. By phase 4  
+(radius 70) the match is a knife fight in ~150 m of space; at radius 25 everything  
+is inside 50 m of everything. **All late-game decisions are therefore decided by  
 who is already inside the small circle and facing the right way.**
 
 ### 5.4 Economy
 
-| | Value |
-| --- | --- |
-| cubes | pickup r 3.5; +4 % max HP (heals the difference) and +4 % damage, capped at 10 cubes (+40 %); **+5 % body size per cube, uncapped** |
-| death drop | 1 cube + `death_drop_extra` 2 = **3 cubes per kill** |
-| upgrade thresholds | 1, 3, 6, 10, 15, 21, 28, 36, 45 cubes |
-| crates | 36, hp 300, r 1.4, 25 % on roofs, 1 cube, 50 % weapon chance |
-| floor loot | 40 weapons, 25 % on roofs, equip 1 s |
-| supply drops | t = 70 / 140 / 210, fall 25 s, radius 8, capture 4 s alone, 3 cubes + **full HP and energy** |
-| NPCs | 12, hp 350, speed 5, aggro 45, deaggro 90, 25 dmg @1 s, leash 30/60, 2 cubes |
+|                    | Value                                                                                                                               |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| cubes              | pickup r 3.5; +4 % max HP (heals the difference) and +4 % damage, capped at 10 cubes (+40 %); **+5 % body size per cube, uncapped** |
+| death drop         | 1 cube + `death_drop_extra` 2 = **3 cubes per kill**                                                                                |
+| upgrade thresholds | 1, 3, 6, 10, 15, 21, 28, 36, 45 cubes                                                                                               |
+| crates             | 36, hp 300, r 1.4, 25 % on roofs, 1 cube, 50 % weapon chance                                                                        |
+| floor loot         | 40 weapons, 25 % on roofs, equip 1 s                                                                                                |
+| supply drops       | t = 70 / 140 / 210, fall 25 s, radius 8, capture 4 s alone, 3 cubes + **full HP and energy**                                        |
+| NPCs               | 12, hp 350, speed 5, aggro 45, deaggro 90, 25 dmg @1 s, leash 30/60, 2 cubes                                                        |
 
 Two things stand out:
-- **A supply drop is a full heal plus 3 cubes for 4 s of standing still.** At
-  t=70/140/210 that is potentially a second life. We score `drop_aggression: 0.0`
-  — we ignore them entirely. This is almost certainly wrong for a kill-focused
+
+- **A supply drop is a full heal plus 3 cubes for 4 s of standing still.** At  
+  t=70/140/210 that is potentially a second life. We score `drop_aggression: 0.0`  
+  — we ignore them entirely. This is almost certainly wrong for a kill-focused  
   policy, and it is untested.
-- **Cube size growth is a downside**: +5 % radius per cube, uncapped. At 10 cubes
-  you are 1.5× wider — much easier to hit. Damage/HP gains cap at 10 cubes, so
+- **Cube size growth is a downside**: +5 % radius per cube, uncapped. At 10 cubes  
+  you are 1.5× wider — much easier to hit. Damage/HP gains cap at 10 cubes, so  
   cubes 11+ are pure downside except for upgrade thresholds.
 
 ### 5.5 Upgrades (exact, from `hello.config.upgrades`)
 
-| id | effect | max | requires |
-| --- | --- | --- | --- |
-| plating | +15 % max HP | 3 | — |
-| armor | −8 % damage taken | 3 | — |
-| servos | +8 % walk & boost | 3 | — |
-| capacitor | +30 energy | 3 | — |
-| reactor | +30 % energy regen | 3 | — |
-| jets | −25 % boost/jet drain | 2 | — |
-| nanites | +60 % regen, −1.5 s delay | 2 | — |
-| gyros | +30 % turn/pitch | 2 | — |
-| sensors | +15 m proximity, +25 m vision, half sound error | 2 | — |
-| gun_damage | +15 % gun damage | 3 | gun |
-| gun_rate | +15 % gun fire rate | 3 | gun |
-| gun_velocity | +25 % projectile speed, +15 % range | 2 | gun |
-| gun_mag | +8 rounds, −20 % reload | 2 | gun |
-| mortar_splash | +30 % splash radius | 2 | mortar |
-| mortar_reload | −18 % cooldown | 3 | mortar |
-| mortar_velocity | +20 % shell speed | 2 | mortar |
-| laser_charge | −25 % charge time | 2 | laser |
-| laser_damage | +18 % damage | 3 | laser |
-| laser_pierce | +1 pierce | 1 | laser |
-| lightning_chain | +1 chain | 2 | lightning |
-| lightning_range | +20 % range & cone | 2 | lightning |
-| lightning_efficiency | −35 % energy, +10 % damage | 2 | lightning |
+| id                   | effect                                          | max | requires  |
+| -------------------- | ----------------------------------------------- | --- | --------- |
+| plating              | +15 % max HP                                    | 3   | —         |
+| armor                | −8 % damage taken                               | 3   | —         |
+| servos               | +8 % walk & boost                               | 3   | —         |
+| capacitor            | +30 energy                                      | 3   | —         |
+| reactor              | +30 % energy regen                              | 3   | —         |
+| jets                 | −25 % boost/jet drain                           | 2   | —         |
+| nanites              | +60 % regen, −1.5 s delay                       | 2   | —         |
+| gyros                | +30 % turn/pitch                                | 2   | —         |
+| sensors              | +15 m proximity, +25 m vision, half sound error | 2   | —         |
+| gun_damage           | +15 % gun damage                                | 3   | gun       |
+| gun_rate             | +15 % gun fire rate                             | 3   | gun       |
+| gun_velocity         | +25 % projectile speed, +15 % range             | 2   | gun       |
+| gun_mag              | +8 rounds, −20 % reload                         | 2   | gun       |
+| mortar_splash        | +30 % splash radius                             | 2   | mortar    |
+| mortar_reload        | −18 % cooldown                                  | 3   | mortar    |
+| mortar_velocity      | +20 % shell speed                               | 2   | mortar    |
+| laser_charge         | −25 % charge time                               | 2   | laser     |
+| laser_damage         | +18 % damage                                    | 3   | laser     |
+| laser_pierce         | +1 pierce                                       | 1   | laser     |
+| lightning_chain      | +1 chain                                        | 2   | lightning |
+| lightning_range      | +20 % range & cone                              | 2   | lightning |
+| lightning_efficiency | −35 % energy, +10 % damage                      | 2   | lightning |
 
-Offers arrive at cube thresholds; timing out applies choice 0. Our valuation
-(`econ.py`) computes the exact marginal effect of each offer from the config and
-weights by survival value (hp 70, armor 60, mobility 9, aim 9, sensors 4). Weapon
+
+Offers arrive at cube thresholds; timing out applies choice 0. Our valuation  
+(`econ.py`) computes the exact marginal effect of each offer from the config and  
+weights by survival value (hp 70, armor 60, mobility 9, aim 9, sensors 4). Weapon  
 upgrades are gated on `requires`, and weapon upgrades persist across weapon drops.
 
-**Note for a kill-focused policy:** this weighting is survival-biased. For a
-kill-rate objective, `gun_damage`, `gun_rate`, `laser_damage` and `laser_charge`
-should rank much higher, and `armor`/`plating` are only worth it because they buy
+**Note for a kill-focused policy:** this weighting is survival-biased. For a  
+kill-rate objective, `gun_damage`, `gun_rate`, `laser_damage` and `laser_charge`  
+should rank much higher, and `armor`/`plating` are only worth it because they buy  
 more fighting time.
 
 ---
 
 ## 6. The arena
 
-| | Value |
-| --- | --- |
-| Bounds | x ∈ [−512.38, 555.08], y ∈ [−333.09, 388.64] (1067 × 722 m) |
-| Terrain | `terrain.i16`: int16 little-endian **centimetres**, 1070 × 724 vertex grid, 1 m step, bilinear |
-| Solids | **259 prisms** (223 building prisms, 64 blocks) with rings/holes |
-| Overhangs | **9 bridges** (bridge overhang intervals over columns) |
-| Trees | **1560** (trunk radius ~0.6–0.7, crown radius 2–13 m, crown base 2–17 m above ground) |
-| Cars | 446 | 
-| Water | 2 regions |
-| Map rules | `maxStep` 1.5, `maxSlopeDeg` 50, `canopyDensity` 0.35, `canopyBlockT` 0.25 |
+|           | Value                                                                                          |
+| --------- | ---------------------------------------------------------------------------------------------- |
+| Bounds    | x ∈ [−512.38, 555.08], y ∈ [−333.09, 388.64] (1067 × 722 m)                                    |
+| Terrain   | `terrain.i16`: int16 little-endian **centimetres**, 1070 × 724 vertex grid, 1 m step, bilinear |
+| Solids    | **259 prisms** (223 building prisms, 64 blocks) with rings/holes                               |
+| Overhangs | **9 bridges** (bridge overhang intervals over columns)                                         |
+| Trees     | **1560** (trunk radius ~0.6–0.7, crown radius 2–13 m, crown base 2–17 m above ground)          |
+| Cars      | 446                                                                                            |
+| Water     | 2 regions                                                                                      |
+| Map rules | `maxStep` 1.5, `maxSlopeDeg` 50, `canopyDensity` 0.35, `canopyBlockT` 0.25                     |
 
-The map is a real OSU campus slice: a stadium with sector rings and openings, the
+The map is a real OSU campus slice: a stadium with sector rings and openings, the  
 Oval, roads, and dense tree cover in the west. Consequences:
 
-- **Terrain is the only thing that beats shared vision.** Distance does not: 200 m
-  of vision with a squad that shares it means "being seen" is effectively
-  permanent. Buildings and the stadium rim are hard occluders; trees are soft
+- **Terrain is the only thing that beats shared vision.** Distance does not: 200 m  
+  of vision with a squad that shares it means "being seen" is effectively  
+  permanent. Buildings and the stadium rim are hard occluders; trees are soft  
   (canopy blocks vision probabilistically, trunks block sight but not shots).
-- **Buildings are climbable** (roofs are solid prisms, `step_up` 1.2 m), which
+- **Buildings are climbable** (roofs are solid prisms, `step_up` 1.2 m), which  
   makes rooftops both a strong position and a trap: you cannot dodge off a roof.
-- **Bridges create overhangs**: a shot can pass under a bridge that blocks vision,
+- **Bridges create overhangs**: a shot can pass under a bridge that blocks vision,  
   and vice versa. Our world model handles this with per-column interval lists.
-- The stadium has `sectors`, `rimWidth`, `rOuter`, `knots`, `openings`, `outline`
+- The stadium has `sectors`, `rimWidth`, `rOuter`, `knots`, `openings`, `outline`  
   — it is a ring you can enter and be trapped inside.
 
 ---
 
 ## 7. Current solution — architecture
 
-Python 3.13, standard library only, ~130 KB of source. Entry point `bot.py` wraps
+Python 3.13, standard library only, ~130 KB of source. Entry point `bot.py` wraps  
 the official `mechfight.py` (protocol loop only). Everything else is ours.
 
-| File | Lines | Role |
-| --- | --- | --- |
-| `brain.py` | ~800 | Decision core: state update, mode selection, movement, firing gate, torso |
-| `combat.py` | ~700 | Aiming, lead, torso slew, target selection, weapon dispatch, arbiter, dodging |
-| `intel.py` | ~570 | Belief layer: per-mech records, sound sectors with live σ, explicit unknowns |
-| `world.py` | ~420 | 1 m engine-accurate arena model: solid tops, overhangs, 9-point body collision, LOS |
-| `nav.py` | ~230 | 8 m nav grid, bounded A*, steering, collision-safe heading filter |
-| `zone.py` | ~150 | Circle interpolation, hide-spot scoring, route clearance, goal hysteresis |
-| `econ.py` | ~300 | Upgrade valuation from live config, pickup/take logic, loot goals |
-| `cover.py` | ~70 | Local occlusion spot search (optional, off) |
-| `params.py` | ~175 | All knobs + `BOT_PARAMS` env override for A/B |
+| File        | Lines | Role                                                                                |
+| ----------- | ----- | ----------------------------------------------------------------------------------- |
+| `brain.py`  | ~800  | Decision core: state update, mode selection, movement, firing gate, torso           |
+| `combat.py` | ~700  | Aiming, lead, torso slew, target selection, weapon dispatch, arbiter, dodging       |
+| `intel.py`  | ~570  | Belief layer: per-mech records, sound sectors with live σ, explicit unknowns        |
+| `world.py`  | ~420  | 1 m engine-accurate arena model: solid tops, overhangs, 9-point body collision, LOS |
+| `nav.py`    | ~230  | 8 m nav grid, bounded A*, steering, collision-safe heading filter                   |
+| `zone.py`   | ~150  | Circle interpolation, hide-spot scoring, route clearance, goal hysteresis           |
+| `econ.py`   | ~300  | Upgrade valuation from live config, pickup/take logic, loot goals                   |
+| `cover.py`  | ~70   | Local occlusion spot search (optional, off)                                         |
+| `params.py` | ~175  | All knobs + `BOT_PARAMS` env override for A/B                                       |
 
 ### 7.1 World model (`world.py`)
 
-The important design decision: it is **not** a heightmap walker, it is a
+The important design decision: it is **not** a heightmap walker, it is a  
 per-column solid-interval model at 1 m resolution.
 
-- For each (x,y) cell it stores `top` (the highest solid surface) and, for cells
+- For each (x,y) cell it stores `top` (the highest solid surface) and, for cells  
   under bridges, an overhang interval `[ohb, oht]`.
-- `solid(x,y,z)` = `z < top[k]` or inside the overhang interval. This is used for
+- `solid(x,y,z)` = `z < top[k]` or inside the overhang interval. This is used for  
   projectile lines and LOS.
-- `blocked(x,y,z,h,step_up,radius)` tests a **9-point body ring** (centre + 8
-  points on the radius) against the column tops with `step_up` tolerance — the
+- `blocked(x,y,z,h,step_up,radius)` tests a **9-point body ring** (centre + 8  
+  points on the radius) against the column tops with `step_up` tolerance — the  
   engine's cylinder is not a point.
 - `shot_clear(a,b)` marches the segment and rejects on `solid`.
-- `vision_clear(a,b)` additionally applies canopy probability from
+- `vision_clear(a,b)` additionally applies canopy probability from  
   `rules.canopyDensity` / `canopyBlockT`.
-- Every geometric constant is read from `hello.config`, not hard-coded
+- Every geometric constant is read from `hello.config`, not hard-coded  
   (`radius`, `height`, `eye_height`, `muzzle_height`, `step_up`, `size_per_cube`).
 
-This fixed a hard bug: the original heightmap-only model let the mech wedge into
-a building corner where it was farmed to death by a single NPC drone at t≈70 s.
+This fixed a hard bug: the original heightmap-only model let the mech wedge into  
+a building corner where it was farmed to death by a single NPC drone at t≈70 s.  
 Nine-point collision plus composed-vector revalidation removed it.
 
-`NullWorld(cfg)` mirrors the same interface when the map cannot be read, so a
+`NullWorld(cfg)` mirrors the same interface when the map cannot be read, so a  
 missing `/arena` degrades to "no terrain knowledge" rather than a crash.
 
 ### 7.2 Intelligence layer (`intel.py`)
@@ -508,37 +514,37 @@ pos (protocol-current), pos_t, vel, hp, max_hp, cubes, weapons, confidence,
 unknown = ("energy","ammo","cooldown","reload","upgrades","stats")
 ```
 
-- Positions from `obs.mechs` are treated as **protocol-current** (no dead
+- Positions from `obs.mechs` are treated as **protocol-current** (no dead  
   reckoning) because the protocol guarantees real current position for 5 s.
-- Sounds become `Sector(source, kind, bearing, sigma, rmin, rmax, age)` with
-  `sigma = bearing_noise_deg × me.stats.hearing` and the distance interval from
-  the class (`near` 0–60, `mid` 60–160, `far` 160–∞). `effective_age()` adds wall
+- Sounds become `Sector(source, kind, bearing, sigma, rmin, rmax, age)` with  
+  `sigma = bearing_noise_deg × me.stats.hearing` and the distance interval from  
+  the class (`near` 0–60, `mid` 60–160, `far` 160–∞). `effective_age()` adds wall  
   time since receipt, so a stale sector decays honestly.
-- `penalty(x,y)` returns how much a candidate position is contradicted by a
+- `penalty(x,y)` returns how much a candidate position is contradicted by a  
   sector — used as a soft cost in zone-goal scoring, never as a hard constraint.
 - `sound_pressure()` sums sector confidence; it feeds the `adapt` factor.
-- Queries: `threat_points()`, `uncertain_points()`, `visible_dicts()`,
+- Queries: `threat_points()`, `uncertain_points()`, `visible_dicts()`,  
   `sector_contacts()`, `sound_bearing()`.
 
-The design principle is **explicit uncertainty**: never fabricate a point from a
+The design principle is **explicit uncertainty**: never fabricate a point from a  
 bearing, never pretend to know energy/ammo/cooldowns.
 
 ### 7.3 Navigation (`nav.py`)
 
-- 8 m coarse grid built from the 1 m model, marking a cell blocked if the body
+- 8 m coarse grid built from the 1 m model, marking a cell blocked if the body  
   cannot stand at its centre.
-- A* with a **wall-clock budget of 2.6 ms** and a node cap; if it fails, fall back
+- A* with a **wall-clock budget of 2.6 ms** and a node cap; if it fails, fall back  
   to greedy steering. This is what keeps p99 inside 50 ms on 1 CPU.
 - `steer()` returns a unit vector toward the next waypoint with local avoidance.
-- `safe_heading()` is the important one: after composing *all* desired motion
-  (path + dodge + NPC repulsion + strafe), it re-validates the **resultant**
-  vector and rotates it in a fan until it is collision-free. Composing
-  individually-valid vectors can produce an invalid sum, which is how the mech
+- `safe_heading()` is the important one: after composing *all* desired motion  
+  (path + dodge + NPC repulsion + strafe), it re-validates the **resultant**  
+  vector and rotates it in a fan until it is collision-free. Composing  
+  individually-valid vectors can produce an invalid sum, which is how the mech  
   used to wedge.
 
 ### 7.4 Zone logic (`zone.py`)
 
-`choose_goal` scores 12 candidate points on a ring at `goal_offset × next_radius`
+`choose_goal` scores 12 candidate points on a ring at `goal_offset × next_radius`  
 from the next circle centre:
 
 ```
@@ -551,400 +557,318 @@ score = −|dist to ring point|·travel_bias
 ```
 
 Two additions mattered:
-- **Route clearance**: the ring is scored by *endpoint* distance, so the bot would
-  drive straight through a visible squad to reach a spot a few metres better. The
-  route is now sampled every ~45 m and penalised if the worst clearance along it
+
+- **Route clearance**: the ring is scored by *endpoint* distance, so the bot would  
+  drive straight through a visible squad to reach a spot a few metres better. The  
+  route is now sampled every ~45 m and penalised if the worst clearance along it  
   is under `path_threat_r`.
-- **Goal hysteresis**: hold a goal for 6 s unless a candidate beats it by 14
-  points. Without this the argmax flipped every decision and the mech oscillated
+- **Goal hysteresis**: hold a goal for 6 s unless a candidate beats it by 14  
+  points. Without this the argmax flipped every decision and the mech oscillated  
   in place (measured: 0 net displacement over 40 s while under fire).
 
 ### 7.5 Combat (`combat.py`)
 
-- `intercept(src, tgt, vel, speed)`: constant-velocity lead. For the gun this is
+- `intercept(src, tgt, vel, speed)`: constant-velocity lead. For the gun this is  
   exact enough; for the mortar it solves the ballistic pitch (`mortar_pitch`).
-- `future_aim(me, yaw, pitch, dt=0.1)`: predicts where the torso will actually
-  point after the slew, because `turn_rate` is 4 rad/s and the command is applied
-  over 0.1 s. Aiming at the target's current bearing while the torso is still
+- `future_aim(me, yaw, pitch, dt=0.1)`: predicts where the torso will actually  
+  point after the slew, because `turn_rate` is 4 rad/s and the command is applied  
+  over 0.1 s. Aiming at the target's current bearing while the torso is still  
   turning is how shots miss.
-- `shot_error(src, point, yaw, pitch)`: perpendicular miss distance, used as the
+- `shot_error(src, point, yaw, pitch)`: perpendicular miss distance, used as the  
   firing tolerance.
-- `target_center(actor, frac=0.5)`: aim at mid-body. We measured that aiming high
+- `target_center(actor, frac=0.5)`: aim at mid-body. We measured that aiming high  
   (0.75) is worse (−0.47) because it clips intervening geometry.
-- `pick_target`: **hysteresis** — keep the same target until it dies or another
-  beats it by `focus_switch_margin`. Without this, damage spread across the squad
+- `pick_target`: **hysteresis** — keep the same target until it dies or another  
+  beats it by `focus_switch_margin`. Without this, damage spread across the squad  
   and 40 % of output went into bots that never died.
-- `dodge_vector` / `laser_dodge`: perpendicular displacement away from the
-  closest-approach point of incoming projectiles, and out of a charging laser's
+- `dodge_vector` / `laser_dodge`: perpendicular displacement away from the  
+  closest-approach point of incoming projectiles, and out of a charging laser's  
   line.
-- **The arbiter** (`_act_arbiter`) is the core fix for D3: each weapon branch
-  proposes `(slot, kind, aim, point, tol, utility, fire, fired)`. The arbiter
-  picks the highest-utility candidate as the single torso aim, then fires any
-  *other* candidate whose shot would still land given that aim (within its
+- **The arbiter** (`_act_arbiter`) is the core fix for D3: each weapon branch  
+  proposes `(slot, kind, aim, point, tol, utility, fire, fired)`. The arbiter  
+  picks the highest-utility candidate as the single torso aim, then fires any  
+  *other* candidate whose shot would still land given that aim (within its  
   tolerance, or inside its cone for lightning). One torso, no contradictions.
-- **Critical detail we discovered late:** the gun/lightning/mortar branches pass
-  literal `fire=True` and the caller's `fire_gate` only scales *utility*. So the
-  gate never actually suppressed a chosen weapon. Every "fire discipline"
-  experiment we ran measured flat for that reason, and we wasted several runs on
+- **Critical detail we discovered late:** the gun/lightning/mortar branches pass  
+  literal `fire=True` and the caller's `fire_gate` only scales *utility*. So the  
+  gate never actually suppressed a chosen weapon. Every "fire discipline"  
+  experiment we ran measured flat for that reason, and we wasted several runs on  
   it. Any new gating must zero the `fire` flag or drop the candidate.
 
 ### 7.6 Decision loop (`brain.act`), in order
 
-1. Update state; compute `hp_frac`, visible enemies, threat points, nearest NPC,
+1. Update state; compute `hp_frac`, visible enemies, threat points, nearest NPC,  
    net displacement over 2 s.
-2. `adapt` factor: `1 + min(1.2, recent_damage·0.18) + min(0.8, sound_pressure·0.12)
-   + (0.5 if t > 250)`. Everything downstream divides engagement range by it.
-3. Situational controller (`trade_adapt`, **off**): `press` if dealt/taken > 1.35
+2. `adapt` factor: \`1 + min(1.2, recent_damage·0.18) + min(0.8, sound_pressure·0.12)
+   - (0.5 if t > 250)\`. Everything downstream divides engagement range by it.
+3. Situational controller (`trade_adapt`, **off**): `press` if dealt/taken > 1.35  
    and HP > 45 %; `disengage` if ratio < 0.65 or HP < 32 %.
-4. Zone goal (with sectors, route clearance, hysteresis). If outside the circle
+4. Zone goal (with sectors, route clearance, hysteresis). If outside the circle  
    by more than 12 % of its radius → emergency, goal = centre.
-5. **Drone aggro break**: if an NPC is inside 50 m and we have taken damage (or
-   it is inside 26 m), sprint directly away for 2.8 s. Drones move 5 m/s; a quiet
+5. **Drone aggro break**: if an NPC is inside 50 m and we have taken damage (or  
+   it is inside 26 m), sprint directly away for 2.8 s. Drones move 5 m/s; a quiet  
    4.85 m/s walk cannot outrun them, so this is a boost, not a walk.
 6. Early roam (`roam_until = 0`, off).
-7. Opportunistic loot: if nothing is within 55 m and `t < 250`, detour to a
+7. Opportunistic loot: if nothing is within 55 m and `t < 250`, detour to a  
    pickup/cube within 30 m.
-8. **Hunt**: if enabled, HP > 45 %, `t < 420`, not emergency, not disengaging →
+8. **Hunt**: if enabled, HP > 45 %, `t < 420`, not emergency, not disengaging →  
    pick the weakest visible enemy within 170 m and walk to it until 45 m.
 9. Kill-loot detour (`loot_kill_enabled`, **off**).
 10. LOS-breaking cover (`cover_enabled`, **off**; neutral locally, ~10 ms/decision).
-11. **Kiting**: if the nearest enemy is inside 100 m and we are below 97 % HP,
-    pick an occlusion-seeking heading (12-way fan, score = hidden·60 + gain·0.35)
+11. **Kiting**: if the nearest enemy is inside 100 m and we are below 97 % HP,  
+    pick an occlusion-seeking heading (12-way fan, score = hidden·60 + gain·0.35)  
     and boost along it for 6 s.
-12. Movement: A* replan if the goal moved >18 m or 3.5 s elapsed; add dodge
-    vectors (×1.4), laser dodge (×1.2), NPC repulsion inside 42 m, and strafe
+12. Movement: A* replan if the goal moved >18 m or 3.5 s elapsed; add dodge  
+    vectors (×1.4), laser dodge (×1.2), NPC repulsion inside 42 m, and strafe  
     within 120 m. Stop at the goal only if no enemy is within 120 m.
-13. Stuck escape: if net displacement < 8 m over 2 s while damaged, or stuck > 0.7 s,
+13. Stuck escape: if net displacement < 8 m over 2 s while damaged, or stuck > 0.7 s,  
     commit to the highest-reach heading for 1.6 s.
 14. Re-validate the composed heading with `safe_heading`.
-15. Speed: quiet (≤4.85 m/s) when nothing is within 70 m and not fleeing/hunting;
+15. Speed: quiet (≤4.85 m/s) when nothing is within 70 m and not fleeing/hunting;  
     boost on emergency, on kiting, and to break drone aggro.
-16. Firing gate → `combat.act(allow_fire, allow_charge)`; arbiter returns one aim
+16. Firing gate → `combat.act(allow_fire, allow_charge)`; arbiter returns one aim  
     plus per-slot fire flags.
-17. Torso: the arbiter's aim, else face the nearest threat, else scan (±0.55 rad
+17. Torso: the arbiter's aim, else face the nearest threat, else scan (±0.55 rad  
     sine at 7 s period, biased toward the sound bearing).
 18. `pick` an upgrade offer; `take` a weapon if standing on one.
 
----
-
-## 8. Measurement infrastructure
-
-Everything is terminal/headless. No browser automation, no desktop control.
-
-### 8.1 Local simulator
-
-Derived from the public MIT repo `anthonyteti/buildathon-mech-royale` (TypeScript
-simulator with a house-squad emulator and an `ExtBot` protocol hook). We did not
-copy any bot code into the submission; the simulator is a dev-only harness and is
-not in the repo.
-
-- **Verified:** its config is byte-identical to the official `hello.config`
-  (0 diffs). It is the real rule set, not an approximation.
-- It emulates the 15 house bots as a squad with shared vision that never fight
-  each other — the same structure the track page describes.
-- A match takes ~1.7 s of wall time; 16 matches ≈ 27 s; a 48-pair A/B ≈ 82 s.
-
-### 8.2 Harnesses (dev-only, uncommitted)
-
-| Script | Purpose |
-| --- | --- |
-| `ab.sh` | Runs one arm: exports `CFG`, `KIT`, `OPP_REGISTRY`, launches the sim |
-| `paired.py` | Parses `ABDATA` lines into paired stats (score, death time, dealt, taken, kills, shots) |
-| `sweep.py` | Cached-baseline sweep: `TRAIN=[(8000,16),(11000,16),(13000,16)]`, `HOLDOUT=[(14000,16),(15000,16),(16000,16)]` |
-| `rank.py` | Ranks configs by range agreement (positives, worst range, pooled, Δkills) |
-| `prof_brain.py` | Replays a recorded stream through `Brain`, reports p50/p99/max decision time |
-
-### 8.3 The measurement protocol (this is the part most people get wrong)
-
-**Seed range is a random effect.** The same comparison can read +0.67 on one range
-and −0.10 on another. Treating seeds as independent understates error badly.
-
-Rules we now enforce:
-
-- **≥48 pairs spanning ≥3 seed ranges** before any claim.
-- Report **per-range deltas**, not just the pooled mean.
-- Anything under **~0.5 score is unresolvable** at feasible sample sizes → call it
-  inconclusive, not a win.
-- Always include a **holdout on untouched ranges**.
-
-**The false positive that taught us this:** focus fire measured `+0.38 ± 0.13` on
-32 pairs from range 4000 (11 wins / 2 losses — looked decisive) and `−0.04 ± 0.08`
-on 48 pairs from range 8000. The first result was noise. We had already written it
-up as a win and had to retract it in the commit message.
-
-### 8.4 Official score noise
-
-48 matches, `score = 16 − place`, values 0–15. Our place distribution is narrow
-(we usually die around 14th), so the per-match sd is roughly 1.5–2.0 →
-**SE ≈ 0.22–0.29**. For a leader whose places vary widely the SE is nearer 0.5.
-So:
-
-- a +0.2 official move is noise;
-- a +0.6 move (like 1.83 → 2.44) is probably real;
-- **practice seeds are fixed**, so successive submissions are *paired* on seeds
-  and only slot/spawn varies, which makes official comparisons more sensitive
-  than the raw SE suggests.
-
----
 
 ## 9. Experiment ledger — everything we tried
 
-Local deltas are paired score differences in the simulator (not official points).
-"Rejected" means the measured effect was negative or unresolvable and the default
+Local deltas are paired score differences in the simulator (not official points).  
+"Rejected" means the measured effect was negative or unresolvable and the default  
 stayed unchanged.
 
 ### 9.1 Adopted (kept)
 
-| Change | Paired result | Why kept |
-| --- | --- | --- |
-| Single torso-aim arbiter (D3) | **+0.54 ± 0.28** harsh / **+0.71 ± 0.59** mild | Only one aim can be commanded; without it shots miss |
-| Protocol-first belief layer (D1/D2) | +0.04 ± 0.07 | Neutral, but removes double-counted dead reckoning and false precision |
-| D1+D2+D3 together | **+0.63 ± 0.25** / **+1.50 ± 0.40** | The combination is much better than the parts |
-| 1 m engine-accurate collision + composed-heading validation | fixed a hard wedging bug (farmed to death by one drone at t≈70 s) | Correctness |
-| Squad kiting (boost away from incoming-fire bearings, 5–6 s) | **+0.55 ± 0.27** | Death time 80 → 105 s |
-| Live-config geometry (D5) | +0.42 ± 0.51 / +0.13 ± 0.18 | Inconclusive as a gain; kept as correctness |
+| Change                                                                                                | Paired result                                                                            | Why kept                                                                        |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Single torso-aim arbiter (D3)                                                                         | **+0.54 ± 0.28** harsh / **+0.71 ± 0.59** mild                                           | Only one aim can be commanded; without it shots miss                            |
+| Protocol-first belief layer (D1/D2)                                                                   | +0.04 ± 0.07                                                                             | Neutral, but removes double-counted dead reckoning and false precision          |
+| D1+D2+D3 together                                                                                     | **+0.63 ± 0.25** / **+1.50 ± 0.40**                                                      | The combination is much better than the parts                                   |
+| 1 m engine-accurate collision + composed-heading validation                                           | fixed a hard wedging bug (farmed to death by one drone at t≈70 s)                        | Correctness                                                                     |
+| Squad kiting (boost away from incoming-fire bearings, 5–6 s)                                          | **+0.55 ± 0.27**                                                                         | Death time 80 → 105 s                                                           |
+| Live-config geometry (D5)                                                                             | +0.42 ± 0.51 / +0.13 ± 0.18                                                              | Inconclusive as a gain; kept as correctness                                     |
 | Movement discipline (route clearance, goal hold, reciprocal fire, kite range gate, no static camping) | score −0.22 ± 0.44, survival −3.5 ± 13.2 s, **dealt +335 ± 239**, **kills +0.25 ± 0.21** | Neutral on survival, positive on offence; each item fixes a demonstrated defect |
-| Quiet movement (≤ step_speed) | vs full speed: **+0.67** for quiet | Footsteps are audible at 40 m, boost at 90 m |
-| Exact config upgrade valuation (D4) | +0.04 ± 0.09 / 0.00 ± 0.12 | Neutral; correct under balance patches |
-| Hunt mode v1 → v2 (target the weakest) | local neutral/negative, official **+0.61** (1.83 → 2.44) | The one case where the official result beat the local proxy |
+| Quiet movement (≤ step_speed)                                                                         | vs full speed: **+0.67** for quiet                                                       | Footsteps are audible at 40 m, boost at 90 m                                    |
+| Exact config upgrade valuation (D4)                                                                   | +0.04 ± 0.09 / 0.00 ± 0.12                                                               | Neutral; correct under balance patches                                          |
+| Hunt mode v1 → v2 (target the weakest)                                                                | local neutral/negative, official **+0.61** (1.83 → 2.44)                                 | The one case where the official result beat the local proxy                     |
 
 ### 9.2 Rejected (measured negative, default unchanged)
 
-| Change | Result | Note |
-| --- | --- | --- |
-| Aggression 0.95 / 0.7 | 0.00 / −0.31 | flat to negative |
-| LOS-breaking cover on | 0.00 ± 0.07 | neutral, costs 10 ms/decision |
-| Early roam + weapon/cube farming | **−0.50 ± 0.17** | the bundle included loud crate shooting |
-| Kite hold 14 s vs 8 s | −0.21 ± 0.13 | over-commits |
-| Laser pre-charge | −0.16 ± 0.13 | telegraphs, and the gate did not gate |
-| Indirect mortar (accept LOS-blocked targets) | −0.28 ± 0.11 | wastes shells |
-| Economy bundle (roam + crates + drops) | **−0.78 ± 0.36** | loud and slow |
-| High aim point (0.75 body) | −0.47 ± 0.23 | clips geometry |
-| Open ground (`cover_bias` 0) | −0.22 ± 0.19 | cover matters |
-| Statue (never move) | **−0.46** | survival without agency is worse |
-| Coward (never fire) | 0.00 | firing is not what kills us |
-| Trade-ratio controller | **−0.062 ± 0.233** per-range [−0.25 / −0.44 / +0.50] | noise |
-| Hunter v3 (aggressive variant) | −0.15 | |
-| Zone-edge goal | +0.19 / +0.67 / −0.10 → +0.25 ± 0.23 pooled | inconclusive |
+| Change                                       | Result                                               | Note                                    |
+| -------------------------------------------- | ---------------------------------------------------- | --------------------------------------- |
+| Aggression 0.95 / 0.7                        | 0.00 / −0.31                                         | flat to negative                        |
+| LOS-breaking cover on                        | 0.00 ± 0.07                                          | neutral, costs 10 ms/decision           |
+| Early roam + weapon/cube farming             | **−0.50 ± 0.17**                                     | the bundle included loud crate shooting |
+| Kite hold 14 s vs 8 s                        | −0.21 ± 0.13                                         | over-commits                            |
+| Laser pre-charge                             | −0.16 ± 0.13                                         | telegraphs, and the gate did not gate   |
+| Indirect mortar (accept LOS-blocked targets) | −0.28 ± 0.11                                         | wastes shells                           |
+| Economy bundle (roam + crates + drops)       | **−0.78 ± 0.36**                                     | loud and slow                           |
+| High aim point (0.75 body)                   | −0.47 ± 0.23                                         | clips geometry                          |
+| Open ground (`cover_bias` 0)                 | −0.22 ± 0.19                                         | cover matters                           |
+| Statue (never move)                          | **−0.46**                                            | survival without agency is worse        |
+| Coward (never fire)                          | 0.00                                                 | firing is not what kills us             |
+| Trade-ratio controller                       | **−0.062 ± 0.233** per-range [−0.25 / −0.44 / +0.50] | noise                                   |
+| Hunter v3 (aggressive variant)               | −0.15                                                |                                         |
+| Zone-edge goal                               | +0.19 / +0.67 / −0.10 → +0.25 ± 0.23 pooled          | inconclusive                            |
 
 ### 9.3 Inconclusive (left at default)
 
-| Change | Result |
-| --- | --- |
-| Aggression 1.0 / `engage_range` 240 | +0.12 ± 0.12 |
-| Mortar-preferring loadout | −0.02 ± 0.09 |
-| Focus fire | +0.38 ± 0.13 then −0.04 ± 0.08 → **false positive** |
-| Kill-loot collection | not yet measured (built, default off) |
+| Change                              | Result                                              |
+| ----------------------------------- | --------------------------------------------------- |
+| Aggression 1.0 / `engage_range` 240 | +0.12 ± 0.12                                        |
+| Mortar-preferring loadout           | −0.02 ± 0.09                                        |
+| Focus fire                          | +0.38 ± 0.13 then −0.04 ± 0.08 → **false positive** |
+| Kill-loot collection                | not yet measured (built, default off)               |
 
 ### 9.4 The 14-dimension sweep
 
-Harness: cached per-seed baseline, so a candidate costs one arm (~82 s). Three
+Harness: cached per-seed baseline, so a candidate costs one arm (~82 s). Three  
 training ranges × 16 seeds, holdout on three untouched ranges.
 
 Baselines: train **1.96 / 71 s / 1.27 kills**; holdout **1.65 / 66.5 s / 1.17 kills**.
 
-Dimensions swept: `aggression`, `cover_bias`, `engage_range`, `focus_switch_margin`,
-`hp_floor`, `hunt_hp`, `hunt_range`, `hunt_standoff`, `hunt_target`, `hunt_until`,
+Dimensions swept: `aggression`, `cover_bias`, `engage_range`, `focus_switch_margin`,  
+`hp_floor`, `hunt_hp`, `hunt_range`, `hunt_standoff`, `hunt_target`, `hunt_until`,  
 `kite_range`, `quiet_when_safe`, `strafe_gain`, `threat_bias`.
 
-**Result: no reliable winner.** Per-range deltas swing by up to 1.2 score *within a
-single config* (e.g. `+0.31 / −1.00 / +0.12`). Only one config was positive on all
+**Result: no reliable winner.** Per-range deltas swing by up to 1.2 score *within a  
+single config* (e.g. `+0.31 / −1.00 / +0.12`). Only one config was positive on all  
 three training ranges and it had *negative* kills — self-contradictory.
 
 Best by mechanism (kills):
 
-| Set | Pooled score | Δkills | Per-range |
-| --- | --- | --- | --- |
-| train | +0.33 | +0.38 | +0.69 / −0.25 / +0.56 |
-| holdout | +0.15 | +0.06 | +0.38 / +0.06 / +0.00 |
+| Set     | Pooled score | Δkills | Per-range             |
+| ------- | ------------ | ------ | --------------------- |
+| train   | +0.33        | +0.38  | +0.69 / −0.25 / +0.56 |
+| holdout | +0.15        | +0.06  | +0.38 / +0.06 / +0.00 |
 
-5 of 6 ranges non-negative, pooled ≈ +0.24 — real but small, and **not clearly
-better than the already-submitted build**. Conclusion: **this parameter space is
+5 of 6 ranges non-negative, pooled ≈ +0.24 — real but small, and **not clearly  
+better than the already-submitted build**. Conclusion: **this parameter space is  
 exhausted; remaining gains are structural.**
 
 ### 9.5 Decision-time budget (why firing discipline never mattered)
 
 Over 387 sampled decisions:
 
-| State | Fraction |
-| --- | --- |
-| A shootable target exists | **21 %** |
-| Alone (no enemies visible or heard) | 35 % |
+| State                               | Fraction |
+| ----------------------------------- | -------- |
+| A shootable target exists           | **21 %** |
+| Alone (no enemies visible or heard) | 35 %     |
 | Enemies visible but terrain-blocked | **44 %** |
 
-Damage is limited by **target availability**, not by permission to shoot. That is
-the strongest local evidence that the policy should spend its effort on *creating*
-engagement opportunities (positioning, closing, weapon acquisition) rather than on
+Damage is limited by **target availability**, not by permission to shoot. That is  
+the strongest local evidence that the policy should spend its effort on *creating*  
+engagement opportunities (positioning, closing, weapon acquisition) rather than on  
 when to pull the trigger.
 
 ### 9.6 Early weapon acquisition (the most promising open lever)
 
-Motivation: §2.1 shows the gun cannot physically reach 5 kills in a 60 s life.
+Motivation: §2.1 shows the gun cannot physically reach 5 kills in a 60 s life.  
 The laser can. Forty weapons sit on the floor.
 
-| Config | Train (48) | Holdout (48) | Per-range (train) | Δkills |
-| --- | --- | --- | --- | --- |
+| Config                                             | Train (48)       | Holdout (48)     | Per-range (train)     | Δkills        |
+| -------------------------------------------------- | ---------------- | ---------------- | --------------------- | ------------- |
 | `roam_until 45`, `weapon_seek_range 200`, hunt off | **+0.46 ± 0.30** | **+0.10 ± 0.24** | +0.44 / +0.12 / +0.81 | +0.46 / +0.19 |
 
-Train is positive on all three ranges and kills rise on both sets, but the holdout
-is mixed (+0.94 / −0.12 / −0.50). By our own standard this is **inconclusive, not
-a win** — the same profile as the configs the sweep rejected. It is recorded
-because the *mechanism* (laser → damage throughput) is the only one that can
-plausibly bridge a 3× kill gap, and because it is the one change where kills moved
+Train is positive on all three ranges and kills rise on both sets, but the holdout  
+is mixed (+0.94 / −0.12 / −0.50). By our own standard this is **inconclusive, not  
+a win** — the same profile as the configs the sweep rejected. It is recorded  
+because the *mechanism* (laser → damage throughput) is the only one that can  
+plausibly bridge a 3× kill gap, and because it is the one change where kills moved  
 on both train and holdout.
 
-A single-match trace shows the failure mode directly: one match dealt **4463
-damage with 0 kills** while holding a lightning for 30 % of the match. Damage was
-spread across several bots, each of which regened it back at 45 HP/s. **Damage
+A single-match trace shows the failure mode directly: one match dealt **4463  
+damage with 0 kills** while holding a lightning for 30 % of the match. Damage was  
+spread across several bots, each of which regened it back at 45 HP/s. **Damage  
 that does not kill is worth almost nothing in this game.**
 
 ---
 
 ## 10. Findings — the physics and economics of this game
 
-1. **Terrain beats vision; distance does not.** 200 m vision + shared intel means
-   being seen is permanent. Only hard occluders (buildings, stadium rim) break
+1. **Terrain beats vision; distance does not.** 200 m vision + shared intel means  
+   being seen is permanent. Only hard occluders (buildings, stadium rim) break  
    contact. Our kiting works because it seeks occlusion, not because it runs away.
-2. **The zone is the real clock.** By phase 4 (r=70) the fight is in ~150 m. A bot
-   that is late to rotate fights the zone and the squad simultaneously. Zone
-   damage (100–260 dps) dwarfs gun damage, so being caught outside is fatal in
+2. **The zone is the real clock.** By phase 4 (r=70) the fight is in ~150 m. A bot  
+   that is late to rotate fights the zone and the squad simultaneously. Zone  
+   damage (100–260 dps) dwarfs gun damage, so being caught outside is fatal in  
    under 10 s at phase 5.
-3. **Regen is a fighting resource.** 45 HP/s after 5 s of no damage dealt *or*
-   taken. A kill-focused policy needs a deliberate "disengage → 5 s clean → heal →
+3. **Regen is a fighting resource.** 45 HP/s after 5 s of no damage dealt *or*  
+   taken. A kill-focused policy needs a deliberate "disengage → 5 s clean → heal →  
    re-engage" cycle. We have no such cycle: we heal only incidentally.
-4. **Kills compound.** 3 cubes per kill = +12 % HP and +12 % damage, plus an
-   upgrade offer at 1/3/6 cubes. Two early kills make the third much cheaper.
-   This is the only snowball in the game and it is the mechanism by which the
+4. **Kills compound.** 3 cubes per kill = +12 % HP and +12 % damage, plus an  
+   upgrade offer at 1/3/6 cubes. Two early kills make the third much cheaper.  
+   This is the only snowball in the game and it is the mechanism by which the  
    leader is at 5.96 while we are at 2.44.
-5. **Time-to-kill is long.** ~10 s of sustained gun fire per kill, or 4.4 laser
-   hits. A duel is decided by who lands more of a long exchange, not by burst.
-   That favours: cover, strafing, facing the enemy (rear ×1.5), and the mortar
+5. **Time-to-kill is long.** ~10 s of sustained gun fire per kill, or 4.4 laser  
+   hits. A duel is decided by who lands more of a long exchange, not by burst.  
+   That favours: cover, strafing, facing the enemy (rear ×1.5), and the mortar  
    (200 damage + 160 splash, no line-of-fire requirement beyond the arc).
-6. **The squad clusters on us late.** By design ("all of them late"). A mortar
-   into 3 bots at 7 m radius deals 200 + 160×2 = up to 520 damage per shell. That
+6. **The squad clusters on us late.** By design ("all of them late"). A mortar  
+   into 3 bots at 7 m radius deals 200 + 160×2 = up to 520 damage per shell. That  
    is the single highest-value weapon in the endgame and we barely use it.
-7. **NPC drones are a neutral third party.** 12 of them, 350 HP, 25 dps, aggro 45
-   m, deaggro 90 m. They damage anyone. Luring them into a house bot is a
+7. **NPC drones are a neutral third party.** 12 of them, 350 HP, 25 dps, aggro 45  
+   m, deaggro 90 m. They damage anyone. Luring them into a house bot is a  
    legitimate, unexplored kill mechanism; we only ever run away from them.
-8. **Supply drops are a second life.** Full HP + full energy + 3 cubes for 4 s of
+8. **Supply drops are a second life.** Full HP + full energy + 3 cubes for 4 s of  
    standing still, three times per match. We ignore them entirely.
-9. **Body size grows with cubes** (+5 % radius each, uncapped) while the HP/damage
-   bonus caps at 10. So cubes beyond 10 are a net negative except for upgrade
+9. **Body size grows with cubes** (+5 % radius each, uncapped) while the HP/damage  
+   bonus caps at 10. So cubes beyond 10 are a net negative except for upgrade  
    thresholds — an unusual incentive that no one seems to model.
-10. **`hello.seed` is worthless as information.** It is slot-fixed. Any policy that
+10. **`hello.seed` is worthless as information.** It is slot-fixed. Any policy that  
     derives a direction or spawn prior from it is fitting noise.
 
----
-
-## 11. What we know and do not know about the opponents
-
-| Claim | Class | Evidence |
-| --- | --- | --- |
-| 15 house bots: 4 easy, 4 medium, 4 hard, 3 expert | A | track page |
-| They share vision | A | track page |
-| They never fight each other | A | track page |
-| They hunt the submitted bot, escalating: one early, more as we thin them out, all late | A | track page |
-| "weakest first" = they send their weakest hunter first | **D** | ambiguous wording; untested |
-| The expert bots aim better and lead shots | C | local sim behaviour, not verified |
-| They rotate with the zone | C | local sim; they rarely die to the zone |
-| They will chase into buildings / around corners | C | local sim; our kiting exploits this |
-| Local emulation is *harder* than the real squad | **D** | official 2.44 > local ~2.0 for the same commit |
-
-The last row matters: our local proxy may be pessimistic about aggression. One
-official data point supports this (hunt mode measured neutral locally, +0.61
-officially). **Treat "local says neutral, official says better" as a signal that
-the real squad is weaker than the emulation assumes.**
-
----
 
 ## 12. Known defects and open opportunities
 
 ### 12.1 Defects still open
 
-| # | Defect | Impact |
-| --- | --- | --- |
-| D6 | Unused observation channels: `drops.progress`, `drops.capture_s`, `rear`, `by` (for attribution), `kill`, `effect`, `took`, `take_failed`, `sounds.age` | No drop contest, no kill confirmation, no regen-timer awareness |
-| D7 | Unused parameters: `retreat_hp`, `pressure_hide`, `stuck_speed`, `ffa_mode` | Dead knobs mislead future A/B |
-| D11 | `dodge_vector` is 2-D closest-approach; no vertical separation, gravity or impact timing | Poor mortar/laser dodging |
-| — | Fire gate only scales utility, never suppresses fire | Every "discipline" experiment was a no-op (documented) |
-| — | No heal cycle (disengage → clean 5 s → re-engage) | Fights are all-in |
-| — | No weapon-acquisition priority | Damage capped at gun rate |
-| — | Damage is spread, so regen erases it (4463 dealt → 0 kills in one trace) | ~40 % of output wasted |
-| — | No drop contest, no NPC luring, no mortar-into-cluster play | Three unused kill mechanisms |
+| #   | Defect                                                                                                                                                  | Impact                                                          |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| D6  | Unused observation channels: `drops.progress`, `drops.capture_s`, `rear`, `by` (for attribution), `kill`, `effect`, `took`, `take_failed`, `sounds.age` | No drop contest, no kill confirmation, no regen-timer awareness |
+| D7  | Unused parameters: `retreat_hp`, `pressure_hide`, `stuck_speed`, `ffa_mode`                                                                             | Dead knobs mislead future A/B                                   |
+| D11 | `dodge_vector` is 2-D closest-approach; no vertical separation, gravity or impact timing                                                                | Poor mortar/laser dodging                                       |
+| —   | Fire gate only scales utility, never suppresses fire                                                                                                    | Every "discipline" experiment was a no-op (documented)          |
+| —   | No heal cycle (disengage → clean 5 s → re-engage)                                                                                                       | Fights are all-in                                               |
+| —   | No weapon-acquisition priority                                                                                                                          | Damage capped at gun rate                                       |
+| —   | Damage is spread, so regen erases it (4463 dealt → 0 kills in one trace)                                                                                | ~40 % of output wasted                                          |
+| —   | No drop contest, no NPC luring, no mortar-into-cluster play                                                                                             | Three unused kill mechanisms                                    |
 
 ### 12.2 Open opportunities, ranked by expected value (my judgement, post-measurement)
 
-1. **Damage conversion.** We deal 3200–4500 per match and kill 1.3. Either the
-   damage is spread across targets that regen it back, or it is overkill. A
-   kill requires 1400 damage inside the regen window; anything less is refunded at
-   45 HP/s. **Fix the conversion before adding aggression** — it is the cheapest
-   multiplier we have, and it needs no new mechanics, only stricter target
+1. **Damage conversion.** We deal 3200–4500 per match and kill 1.3. Either the  
+   damage is spread across targets that regen it back, or it is overkill. A  
+   kill requires 1400 damage inside the regen window; anything less is refunded at  
+   45 HP/s. **Fix the conversion before adding aggression** — it is the cheapest  
+   multiplier we have, and it needs no new mechanics, only stricter target  
    commitment (do not switch, do not chip, do not poke at range).
-2. **Weapon acquisition.** The only mechanism that raises the damage ceiling.
-   Measured +0.46 train / +0.10 holdout, kills up on both. Weak but mechanistically
+2. **Weapon acquisition.** The only mechanism that raises the damage ceiling.  
+   Measured +0.46 train / +0.10 holdout, kills up on both. Weak but mechanistically  
    necessary: the gun cannot reach 5 kills in 60 s, the laser can.
-3. **Weapon-choice quality.** We currently take whatever we walk over, and
-   `weapon_pref` ranks lightning above the gun even though lightning is 45 m /
-   60 damage. Picking the *right* weapon (laser > mortar > gun > lightning for this
+3. **Weapon-choice quality.** We currently take whatever we walk over, and  
+   `weapon_pref` ranks lightning above the gun even though lightning is 45 m /  
+   60 damage. Picking the *right* weapon (laser > mortar > gun > lightning for this  
    matchup) and dropping a bad one is a free win.
-4. **Supply-drop contest at t = 70/140/210.** Full heal + 3 cubes for 4 s. Contest
+4. **Supply-drop contest at t = 70/140/210.** Full heal + 3 cubes for 4 s. Contest  
    when no enemy is within ~50 m and we are below ~70 % HP.
-5. **Mortar-into-cluster.** When ≥2 enemies are within 7 m of each other and
+5. **Mortar-into-cluster.** When ≥2 enemies are within 7 m of each other and  
    40–120 m away, lob a shell: 520 damage per shell vs 200 self-damage risk.
-6. **NPC luring.** Drag drone aggro into a house bot and break contact. 25 dps for
-   free on a target we are not trading with — and NPCs already kill 0.69 bots per
+6. **NPC luring.** Drag drone aggro into a house bot and break contact. 25 dps for  
+   free on a target we are not trading with — and NPCs already kill 0.69 bots per  
    match without our help.
 7. **Heal-cycle controller.** `engage → break (occlusion, boost) → clean 5 s →
    heal to 80 % → re-engage`. Regen is currently accidental.
-8. **Kill-loot collection.** 3 cubes at the corpse we just made, 7 s window, only
+8. **Kill-loot collection.** 3 cubes at the corpse we just made, 7 s window, only  
    when nothing is within 55 m. Built, default off, unmeasured.
 
 ### 12.3 Things that are *not* worth doing (already measured)
 
-Parameter tuning of the existing policy; firing discipline; cover-seeking;
-indirect fire; high aim; laser pre-charge; crate/NPC farming as a primary plan;
+Parameter tuning of the existing policy; firing discipline; cover-seeking;  
+indirect fire; high aim; laser pre-charge; crate/NPC farming as a primary plan;  
 zone-edge camping; trade-ratio adaptation. All measured, all flat or negative.
 
 ---
 
 ## 13. Calibration: local proxy vs official score
 
-| Build | Local (paired mean) | Official |
-| --- | --- | --- |
-| v0 starter-derived | ~0.2 | **0.25** |
-| `ac7f72a` survival iteration | 1.9–2.1 | **1.83** |
-| `407c50e` hunt v1 | ~2.0 | **2.44** |
-| `7468dcb` hunt v2 | ~2.0–2.2 | not recorded ("jumped a bit") |
+| Build                        | Local (paired mean) | Official                      |
+| ---------------------------- | ------------------- | ----------------------------- |
+| v0 starter-derived           | ~0.2                | **0.25**                      |
+| `ac7f72a` survival iteration | 1.9–2.1             | **1.83**                      |
+| `407c50e` hunt v1            | ~2.0                | **2.44**                      |
+| `7468dcb` hunt v2            | ~2.0–2.2            | not recorded ("jumped a bit") |
 
 Conclusions:
 
 - **Absolute calibration is good**: local 1.9–2.1 vs official 1.83.
-- **Aggression transfers better officially than locally**: hunt mode was neutral
-  locally and +0.61 officially. The local squad over-punishes aggression, probably
+- **Aggression transfers better officially than locally**: hunt mode was neutral  
+  locally and +0.61 officially. The local squad over-punishes aggression, probably  
   because the emulation's expert bots are stronger than the real ones.
-- **The local ceiling is ~2.0** because the emulated house bots survive 87 % of
-  matches. The score signal is nearly flat, so survival time and kills are the
+- **The local ceiling is ~2.0** because the emulated house bots survive 87 % of  
+  matches. The score signal is nearly flat, so survival time and kills are the  
   primary local signals, not score.
 
-**Practical implication:** a change that improves *kills* locally without hurting
-score is more promising than its score delta suggests. This is exactly the
+**Practical implication:** a change that improves *kills* locally without hurting  
+score is more promising than its score delta suggests. This is exactly the  
 profile of the best sweep config (+0.33 score, +0.38 kills).
 
 ---
 
 ## 14. What the human operator does, and the constraints I work under
 
-- **All official submissions are made manually by the human.** I never submit. I
-  notify via a Discord webhook when a submission is warranted (with `@everyone`),
+- **All official submissions are made manually by the human.** I never submit. I  
+  notify via a Discord webhook when a submission is warranted (with `@everyone`),  
   and send ordinary devlogs without it.
-- **Budget:** the platform allows 4 submissions/hour; the human self-limits to 2
-  and wants at least one slot left free. Default policy: at most one submission
+- **Budget:** the platform allows 4 submissions/hour; the human self-limits to 2  
+  and wants at least one slot left free. Default policy: at most one submission  
   per hour, only for genuinely promising changes.
-- **Autonomy:** I operate headless/terminal only. No desktop takeover, no
-  simulated input, no browser-profile or cookie access, no interference with the
+- **Autonomy:** I operate headless/terminal only. No desktop takeover, no  
+  simulated input, no browser-profile or cookie access, no interference with the  
   human's session.
 - **Repo:** public, Dockerfile at root, ≤20 MB, MIT, atomic commits per experiment.
-- **Never lock or select a final entry** — the platform locks the best score
+- **Never lock or select a final entry** — the platform locks the best score  
   automatically, and the human decides.
 
 ---
@@ -954,51 +878,58 @@ profile of the best sweep config (+0.33 score, +0.38 kills).
 Please return, in this order:
 
 ### 15.1 Critique (short)
+
 Where is the reasoning in this document wrong? Specifically check:
 
 - the scoring identity in §2 and the `score = kills + 0.69` decomposition;
-- **the central puzzle:** every policy we try dies at 44–74 s, and the best score
-  any of them reaches locally is ~2.6. Yet the leaderboard leader is at 5.96, which
-  needs ~5 opponent deaths per match. Either (a) they kill 5 bots in ~60 s, which
-  requires ~10,000 damage and therefore the laser, or (b) they survive far longer
-  than our 60 s and collect environmental deaths as the zone collapses, or (c) our
-  local proxy is systematically harsher than the real squad. **Tell me which you
-  believe and what would discriminate between them**, because the entire strategy
+- **the central puzzle:** every policy we try dies at 44–74 s, and the best score  
+  any of them reaches locally is ~2.6. Yet the leaderboard leader is at 5.96, which  
+  needs ~5 opponent deaths per match. Either (a) they kill 5 bots in ~60 s, which  
+  requires ~10,000 damage and therefore the laser, or (b) they survive far longer  
+  than our 60 s and collect environmental deaths as the zone collapses, or (c) our  
+  local proxy is systematically harsher than the real squad. **Tell me which you  
+  believe and what would discriminate between them**, because the entire strategy  
   hinges on it;
-- the claim that weapon acquisition is a prerequisite for kill rate (measured, but
+- the claim that weapon acquisition is a prerequisite for kill rate (measured, but  
   only +0.46 train / +0.10 holdout — argue with it);
-- whether "never fight each other" has any loophole we are missing (e.g. can we
+- whether "never fight each other" has any loophole we are missing (e.g. can we  
   make them damage each other with splash, knockback, or by body-blocking?).
 
 ### 15.2 A ranked plan (the main deliverable)
+
 5–8 structural changes, each with:
+
 - the mechanism (why it raises `bots dead before us`),
 - the expected effect size in score and kills,
 - the risk to survival,
 - the cheapest experiment that would falsify it.
 
-Order them by expected value per hour of implementation, given ~26 hours left and
+Order them by expected value per hour of implementation, given ~26 hours left and  
 a ~4-minute local A/B cycle.
 
 ### 15.3 Your own implementation
-A complete decision policy for `mechfight/1`. It can be Python pseudocode or real
+
+A complete decision policy for `mechfight/1`. It can be Python pseudocode or real  
 code. It must:
+
 - respect the 50 ms budget on 1 CPU (state your complexity per decision);
 - read all numbers from `hello.config`, never hard-code;
-- handle: no map available, no visible enemies, being outside the zone, being
+- handle: no map available, no visible enemies, being outside the zone, being  
   hunted by 2+ bots, a charging laser pointed at us, a mortar in flight;
-- specify its behaviour in the first 60 s, the mid game, and the final 60 s
+- specify its behaviour in the first 60 s, the mid game, and the final 60 s  
   separately, since the squad's escalation makes these different games.
 
 ### 15.4 The first three things to test
+
 Concrete, with the exact metric and the sample size you would accept as evidence.
 
 ### 15.5 Things you would need that are not in this document
-Be explicit about what you cannot decide without more data. I can run experiments
+
+Be explicit about what you cannot decide without more data. I can run experiments  
 and report back.
 
-**Do not** propose parameter tuning of the existing knobs (exhausted, §9.4), and
-do not re-propose anything in §9.2 without a new mechanism that explains why the
+**Do not** propose parameter tuning of the existing knobs (exhausted, §9.4), and  
+do not re-propose anything in §9.2 without a new mechanism that explains why the  
 previous measurement was wrong.
 
 ---
@@ -1040,6 +971,8 @@ python3 check/check.py --map-dir /arena -- docker run --rm -i --network none \
 # A/B a variant locally (dev harness, not in the repo)
 BOT_PARAMS='{"hunt_range": 230}' ./ab.sh <seed> <range>
 ```
+
+
 
 ---
 
@@ -1152,6 +1085,7 @@ After your mech dies, you receive no more observations, only `end`.
   - mortar tube: `pos.z + 9.5` (`height + 0.5`)
 - **Shot origin:** Every shot leaves `radius + 0.5` = 3.0 m out along the aim (less if a wall is closer, so nothing fires from inside geometry).
 - **NPC dimensions:** Radius 1.8, height 3.5.
+
 
 ### 6. Messages
 
@@ -1316,6 +1250,7 @@ Retention and caps:
 - Bad items are dropped and numbers are rounded to 0.01.
 - Once a mech has recorded `max_match_bytes` (8 MB) in a match, later drawings are dropped.
 - The whole action line still has to fit in `bot.max_line_bytes`.
+
 
 ### 7. Rules of the world
 
@@ -1507,6 +1442,7 @@ Two files define the world the server simulates:
 
 
 ---
+
 
 ## Appendix B — Full live `hello.config`, verbatim
 
