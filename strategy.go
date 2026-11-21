@@ -287,8 +287,17 @@ func NewAgent(h *Hello) *Agent {
 		bad: map[int]float64{}, routeAt: -99, strafe: 1, coverAt: -99, coverFailAt: -99, lastHurt: -100, lootID: -1,
 		homeAt: -99, stuckSince: -1, unstuckDir: [2]float64{1, 0}, lastThreat: -100, escAt: -99, stickID: -1, stickAt: -99, loseAt: -99,
 		mode: "idle"}
-	w, err := LoadWorld(h.Map.Dir)
-	if err != nil {
+	var w *World
+	var err error
+	for _, dir := range []string{h.Map.Dir, "/arena", "arena"} {
+		if dir == "" {
+			continue
+		}
+		if w, err = LoadWorld(dir); err == nil {
+			break
+		}
+	}
+	if w == nil {
 		fmt.Fprintln(os.Stderr, "map setup failed:", err)
 		return b
 	}
