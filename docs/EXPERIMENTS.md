@@ -438,6 +438,32 @@ Tested on top of E46b behind `precision_v1` (default `False`).
 suppressed shots that would have aligned on tick 2 of the 2-tick decision window, cutting
 dealt damage by −623 and kills by −0.27. Default stays `precision_v1: False`; E46b remains HEAD.
 
+### E49 — Kill-reset cube snowball (`kill_snowball_v1`, adopted)
+Built on top of E46b (`snowball_v3` + laser preference). Diagnosed why cubes stayed at 2.10
+despite 2.10 kills (= 6.3 dropped cubes): winning a duel left old hits from the dead mech in
+`damage_bearings` plus an active `kite_until` timer, causing the bot to boost 130 m away
+from its own dead corpse and abandon 3 cubes (+168 instant HP, +12 % damage, upgrade) and
+its dropped secondary weapon.
+1. **Kill-reset kite**: track attacker `by` in `damage_bearings`; on `kill(tid)`, purge
+   `tid`'s bearings and, if no other live mech damaged us in the last 3 s, clear
+   `kite_until = -1.0` so we immediately scoop the 3-cube corpse.
+2. **Closer cube & loot retention**: extend `kill_loots` scoop radius `75 m → 105 m` when
+   `sb_los_mechs == 0`; stop `kite` from overriding a `<16 m` safe cube right at our feet
+   (`hp_frac > 0.25`); relax safe NPC/crate farming thresholds (`mclose > 66 m`, `cubes < 15`).
+3. **Idle rear-damage bearing snap**: when `aim_cmd is None` and we took damage in the last
+   2 s, snap torso toward the most recent damage bearing instead of slow-scanning.
+
+| Set | Orig Base | E46b (`v3`) | **E49 (`kill_snowball_v1`)** | Paired Δ vs Base | Per-range Δ vs Base |
+| --- | --- | --- | --- | --- | --- |
+| train (n=48) | 1.98 / 1.25k / 74.7s | 2.81 / 2.10k | **3.27 / 2.54k / 76.5s** | **+1.29 ± 0.37** (**+1.29 ± 0.36k**) | **`+1.06 / +0.88 / +1.94`** |
+| holdout (n=48) | 1.67 / 1.23k / 65.9s | 2.52 / 2.10k | **3.02 / 2.50k / 70.4s** | **+1.35 ± 0.38** (**+1.27 ± 0.37k**) | **`+1.44 / +1.44 / +1.19`** |
+| **combined (n=96)** | **1.82 / 1.24k / 70.3s** | **2.67 / 2.10k** | **3.15 / 2.52k / 73.5s** | **+1.32 ± 0.26** (**+1.28 ± 0.26k**) | **6/6 ranges `+0.88` to `+1.94`** |
+
+Metrics (96-match means): dealt 2,728 → **4,628** (+1,900, +70 %), taken 1,741 → **2,070**
+(+329), trade ratio 1.57× → **2.24×** (2.20× train, 2.28× holdout), dmg/kill 2,200 → **1,836**,
+cubes 0.37 → **3.12** (8.4×; 16× on holdout!). Every single seed range scored **2.94–3.62**.
+Adopted as default (`kill_snowball_v1: True`).
+
 ---
 
 ## Rejected

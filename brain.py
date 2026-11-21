@@ -192,11 +192,17 @@ class Brain:
                 self.taken_recent += float(e.get("amount", 0) or 0.0)
                 b = e.get("bearing")
                 if b is not None:
-                    self.damage_bearings.append((b, t, float(e.get("amount", 0))))
+                    self.damage_bearings.append((b, t, float(e.get("amount", 0)), e.get("by")))
             elif ty == "kill":
                 tid = e.get("target")
                 if tid is not None and tid != my_id:
                     kill_ids.append(tid)
+                    if self.p.get("kill_snowball_v1", False):
+                        # Purge damage bearings from the mech we just killed!
+                        self.damage_bearings = [d for d in self.damage_bearings if d[3] != tid]
+                        # If no other live mech damaged us recently, stop fleeing the corpse so we scoop its 3 cubes!
+                        if not any(t - d[1] < 3.0 for d in self.damage_bearings):
+                            self.kite_until = -1.0
             elif ty == "hit":
                 # confirmation that one of our shots landed
                 tgt = e.get("target")
@@ -308,7 +314,8 @@ class Brain:
         for sp in self.sound_points:
             if t - sp[2] < 3.0:
                 out.append((sp[0], sp[1]))
-        for b, bt, amt in self.damage_bearings:
+        for d in self.damage_bearings:
+            b, bt = d[0], d[1]
             if t - bt < 3.0:
                 out.append((x + math.cos(b) * 60.0, y + math.sin(b) * 60.0))
         return out
@@ -465,8 +472,9 @@ class Brain:
 
             # 2) Kill-loot corpse (3 cubes + weapon!)
             sb2 = bool(p.get("snowball_v2", False))
+            ks1 = bool(p.get("kill_snowball_v1", False))
             if not sb_econ_lock and self.kill_loots and hp_frac > 0.35 and (sb_los_mechs == 0 or (sb2 and mclose > 30.0)):
-                kl_lim = 55.0 if (sb2 and sb_los_mechs > 0) else 75.0
+                kl_lim = 55.0 if (sb2 and sb_los_mechs > 0) else (105.0 if ks1 else 75.0)
                 for kx, ky, kz, kt in reversed(self.kill_loots):
                     if abs(kz - z) > 4.5:
                         continue
@@ -474,7 +482,7 @@ class Brain:
                     if kd > kl_lim or math.hypot(kx - ccx, ky - ccy) > cr * 0.88:
                         continue
                     near_e = min((math.hypot(kx - e["pos"][0], ky - e["pos"][1]) for e in visible), default=999.0)
-                    if near_e < (24.0 if sb2 else 26.0):
+                    if near_e < (22.0 if ks1 else (24.0 if sb2 else 26.0)):
                         continue
                     if not self.world.blocked(kx, ky, self.world.ground(kx, ky)):
                         goal, goal_kind = (kx, ky), "loot"
@@ -564,14 +572,16 @@ class Brain:
                             sb_boost = True
 
                 # 5b) Approach visible NPC drone (<95m) or crate (<80m) when safe to farm cubes!
-                if (not sb_econ_lock and sb_los_mechs == 0 and mclose > 82.0
-                        and hp_frac > 0.45 and me.get("cubes", 0) < 12):
+                npc_safe_m = 66.0 if ks1 else 82.0
+                cube_cap_farm = 15 if ks1 else 12
+                if (not sb_econ_lock and sb_los_mechs == 0 and mclose > npc_safe_m
+                        and hp_frac > 0.45 and me.get("cubes", 0) < cube_cap_farm):
                     if p.get("snowball_npc_farm", True) and npc_near is not None:
                         nx_d, ny_d, nz_d = npc_near["pos"]
                         if (npc_close < 95.0 and abs(nz_d - z) < 5.0
                                 and math.hypot(nx_d - ccx, ny_d - ccy) < cr * 0.88):
                             near_e = min((math.hypot(nx_d - e["pos"][0], ny_d - e["pos"][1]) for e in visible), default=999.0)
-                            if near_e > 55.0 and npc_close > 26.0:
+                            if near_e > (45.0 if ks1 else 55.0) and npc_close > 26.0:
                                 goal, goal_kind = (nx_d, ny_d), "npc"
                                 sb_econ_lock = True
                     if not sb_econ_lock and p.get("snowball_crate_farm", True) and (me.get("cubes", 0) < 10 or w1 is None):
@@ -584,7 +594,7 @@ class Brain:
                             cd = math.hypot(cx - x, cy - y)
                             if cd < best_cd2 and cd > 22.0:
                                 near_e = min((math.hypot(cx - e["pos"][0], cy - e["pos"][1]) for e in visible), default=999.0)
-                                if near_e > 60.0:
+                                if near_e > (50.0 if ks1 else 60.0):
                                     best_cd2 = cd
                                     best_cr2 = (cx, cy)
                         if best_cr2 is not None:
@@ -754,7 +764,8 @@ class Brain:
                       * size_scale(e.get("cubes", 0), self.world.size_per_cube))
                      for e in visible),
                     key=lambda q: math.hypot(q[0] - x, q[1] - y))
-                for b, bt, amt in self.damage_bearings[-2:]:
+                for d in self.damage_bearings[-2:]:
+                    b = d[0]
                     tx, ty = x + math.cos(b) * 70.0, y + math.sin(b) * 70.0
                     eyes.append((tx, ty, self.world.ground(tx, ty) + self.world.eye_height))
                 if not eyes:
@@ -846,19 +857,23 @@ class Brain:
                     kh = 3.2
                 self.kite_until = t + kh
         if t < self.kite_until and self.kite_dir is not None:
-            kx, ky = self.kite_dir
-            if p["kite_cover"] and visible:
-                bh = self._break_heading(x, y, z, visible, t, all_threats=threats, cc=(ccx, ccy), cr=cr)
-                if bh is not None:
-                    kx, ky = bh
-            gx, gy = x + kx * 130.0, y + ky * 130.0
-            dd = math.hypot(gx - ccx, gy - ccy)
-            lim = cr * 0.82
-            if dd > lim and dd > 0.01:
-                gx = ccx + (gx - ccx) / dd * lim
-                gy = ccy + (gy - ccy) / dd * lim
-            goal, goal_kind = (gx, gy), "kite"
-            covered, roaming, kiting = False, False, True
+            # In kill_snowball_v1, don't kite away from a <16 m safe cube right at our feet!
+            ks1_cube_near = (p.get("kill_snowball_v1", False) and goal_kind == "cube"
+                             and math.hypot(goal[0] - x, goal[1] - y) < 16.0 and hp_frac > 0.25)
+            if not ks1_cube_near:
+                kx, ky = self.kite_dir
+                if p["kite_cover"] and visible:
+                    bh = self._break_heading(x, y, z, visible, t, all_threats=threats, cc=(ccx, ccy), cr=cr)
+                    if bh is not None:
+                        kx, ky = bh
+                gx, gy = x + kx * 130.0, y + ky * 130.0
+                dd = math.hypot(gx - ccx, gy - ccy)
+                lim = cr * 0.82
+                if dd > lim and dd > 0.01:
+                    gx = ccx + (gx - ccx) / dd * lim
+                    gy = ccy + (gy - ccy) / dd * lim
+                goal, goal_kind = (gx, gy), "kite"
+                covered, roaming, kiting = False, False, True
 
         # ---- rooftop warfare (E42) ---------------------------------------
         roof_active = False
@@ -940,7 +955,8 @@ class Brain:
                              * size_scale(e.get("cubes", 0), self.world.size_per_cube))
                             for e in sorted(visible, key=lambda q: math.hypot(q["pos"][0] - x, q["pos"][1] - y))[:3]
                         ]
-                        for b, bt, _ in self.damage_bearings[-2:]:
+                        for d in self.damage_bearings[-2:]:
+                            b = d[0]
                             tx, ty = x + math.cos(b) * 65.0, y + math.sin(b) * 65.0
                             eyes.append((tx, ty, self.world.ground(tx, ty) + self.world.eye_height))
                         if t - self.roof_hide_t > 0.4 or self.roof_hide_cache is None:
@@ -1468,7 +1484,8 @@ class Brain:
 
         # ---- torso: face the threat (front arc), otherwise scan ----------
         aim_yaw, aim_pitch = me["aim"][0], me["aim"][1]
-        recent_dmg_b = ([d for d in self.damage_bearings if t - d[1] < 2.0] if pr1 else [])
+        recent_dmg_b = ([d for d in self.damage_bearings if t - d[1] < 2.0]
+                        if (pr1 or p.get("kill_snowball_v1", False)) else [])
         if aim_cmd is not None:
             aim_yaw, aim_pitch = aim_cmd[0], clamp(aim_cmd[1], self.min_pitch, self.max_pitch)
         elif recent_dmg_b:

@@ -217,6 +217,8 @@ DEFAULT = {
     "sb4_gear_until": 38.0,       # defer bare-gun hunt until w1 equipped (still fire 100% if in LOS!)
     # --- precision v1 (E48): 1-tick laser slew/lead, rear-bearing snap, no self-slow on laser-duck, finish hunt, fallback indirect mortar
     "precision_v1": False,        # A/B test on top of E46b snowball_v3
+    # --- kill snowball v1 (E49): kill-reset kite to scoop 3 cubes + rear-bearing snap + aggressive NPC/crate farm
+    "kill_snowball_v1": True,     # ADOPTED E49: 3.15 combined (+1.32 vs BASE, 2.52 kills, 3.12 cubes)
 }
 
 
