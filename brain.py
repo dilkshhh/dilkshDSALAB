@@ -108,6 +108,8 @@ class Brain:
         self.roof_hide_t = -1e9
         self.roof_peek_cache = None
         self.roof_peek_t = -1e9
+        self.known_pickups = {}   # pid -> (kind, [x, y, z], t)
+        self.kill_loots = []      # [(x, y, z, t), ...]
 
     # ------------------------------------------------------------------ state
     def _break_heading(self, x, y, z, visible, t):
@@ -180,6 +182,10 @@ class Brain:
                 if tgt is None or tgt != my_id:
                     self.dealt_recent += float(e.get("amount", 0) or 0.0)
                     self.last_hit_t = t
+            elif ty == "took":
+                self.known_pickups.pop(e.get("id"), None)
+            elif ty == "take_failed" and e.get("reason") == "gone":
+                self.known_pickups.pop(e.get("id"), None)
         self.damage_bearings = [d for d in self.damage_bearings if t - d[1] < 6.0]
         # resolve fresh kill positions after the belief layer has seen the obs
         if getattr(self, "_kill_ids", None) and self.intel_enabled:
@@ -187,6 +193,28 @@ class Brain:
                 b = self.intel.beliefs.get(tid)
                 if b is not None and b.pos is not None:
                     self.kill_loot = (b.pos[0], b.pos[1], t)
+                    self.kill_loots.append((b.pos[0], b.pos[1], b.pos[2], t))
+        # keep persistent memory of seen weapon pickups (they never despawn unless taken)
+        seen_pids = set()
+        mx0, my0, mz0 = me["pos"]
+        for pk in obs.get("pickups", []):
+            pid = pk.get("id")
+            if pid is not None:
+                seen_pids.add(pid)
+                self.known_pickups[pid] = (pk["kind"], list(pk["pos"]), t)
+        for pid, (_, ppos, pt) in list(self.known_pickups.items()):
+            if pid in seen_pids:
+                continue
+            if t - pt > 90.0:
+                del self.known_pickups[pid]
+            elif math.hypot(ppos[0] - mx0, ppos[1] - my0) < 22.0 and abs(ppos[2] - mz0) < 5.0:
+                if self.world.shot_clear((mx0, my0, mz0 + self.world.eye_height),
+                                         (ppos[0], ppos[1], ppos[2] + 0.5), step=4.0):
+                    del self.known_pickups[pid]
+        self.kill_loots = [
+            kl for kl in self.kill_loots
+            if t - kl[3] < 12.0 and math.hypot(kl[0] - mx0, kl[1] - my0) > 3.5
+        ]
 
         self._kill_ids = kill_ids
         if self.intel_enabled:
@@ -328,16 +356,40 @@ class Brain:
             emergency = True
             goal = (ccx, ccy)
 
-        # ---- drone aggro break -------------------------------------------
+        # ---- drone aggro break (or NPC drone farming in snowball_v1) -----
+        sb = bool(p.get("snowball_v1", False))
+        wv2 = bool(p.get("weapons_v2", False)) or sb or bool(p.get("combat_v2", False))
+        w1 = me["weapons"][1] if len(me.get("weapons") or []) > 1 else None
+        w1_kind = w1.get("kind") if w1 else None
+        my_light_r = float((w1 or {}).get("stats", {}).get("range", self.cfg_light_range)) if w1_kind == "lightning" else 0.0
+        my_muzzle_z = z + me.get("stats", {}).get("muzzle_height", self.world.muzzle_height)
+        sb_los_mechs = 0
+        if sb and visible:
+            for e in visible:
+                if math.hypot(e["pos"][0] - x, e["pos"][1] - y) < 120.0:
+                    if self.world.shot_clear((x, y, my_muzzle_z), target_center(e, self.world.size_per_cube, self.world.height, p["aim_height_frac"])):
+                        sb_los_mechs += 1
+        sb_farm_npc = None
+        if (sb and p.get("snowball_npc_farm", True) and not emergency
+                and npc_near is not None and npc_close < 58.0
+                and sb_los_mechs == 0 and mclose > 72.0
+                and hp_frac > 0.38 and me.get("cubes", 0) < 15
+                and abs(npc_near["pos"][2] - z) < 5.0
+                and self.world.shot_clear((x, y, my_muzzle_z),
+                                          (npc_near["pos"][0], npc_near["pos"][1], npc_near["pos"][2] + 1.75))):
+            sb_farm_npc = npc_near
+
         # Drones aggro at 45 m, deal 25/s and never lose interest while we
         # orbit a nearby hide spot.  Sprinting out of their 60 m chase leash
         # is quieter (90 m boost sound) than shooting them (320 m gun sound).
-        if (npc_near is not None and npc_close < p["npc_break_range"]
+        if (sb_farm_npc is None and npc_near is not None and npc_close < p["npc_break_range"]
                 and (self.recent_damage > 0.05 or npc_close < 26.0)):
             fx, fy = x - npc_near["pos"][0], y - npc_near["pos"][1]
             fd = math.hypot(fx, fy) or 1.0
             self.flee_dir = (fx / fd, fy / fd)
             self.flee_until = t + p["npc_break_hold_s"]
+        if sb_farm_npc is not None:
+            self.flee_until = -1.0
         if t < self.flee_until and self.flee_dir is not None:
             fx, fy = self.flee_dir
             gx, gy = x + fx * 120.0, y + fy * 120.0
@@ -352,7 +404,104 @@ class Brain:
         roaming = (t < p["roam_until"] and not emergency
                    and not (t < self.flee_until))
         goal_kind = "zone"
-        if roaming:
+        sb_econ_lock = False
+        sb_boost = False
+        sb_farm_crate = None
+        if sb and not emergency and not (t < self.flee_until):
+            # 1) Aggressive cube grab (instant +56 HP heal + 4% dmg + upgrade!)
+            best_cube = None
+            best_cd = 1e9
+            cube_lim = p.get("snowball_cube_r", 50.0) if sb_los_mechs == 0 else 22.0
+            for c in obs.get("cubes", []):
+                cx, cy, cz = c["pos"]
+                if abs(cz - z) > 4.5:
+                    continue
+                cd = math.hypot(cx - x, cy - y)
+                if cd > cube_lim or cd >= best_cd:
+                    continue
+                if math.hypot(cx - ccx, cy - ccy) > cr * 0.90:
+                    continue
+                near_e = min((math.hypot(cx - e["pos"][0], cy - e["pos"][1]) for e in visible), default=999.0)
+                if near_e < 16.0 or (hp_frac < 0.35 and near_e < 32.0):
+                    continue
+                if self.world.blocked(cx, cy, self.world.ground(cx, cy)):
+                    continue
+                best_cd = cd
+                best_cube = (cx, cy)
+            if best_cube is not None:
+                goal, goal_kind = best_cube, "cube"
+                sb_econ_lock = (best_cd < 26.0 or sb_los_mechs == 0)
+                if best_cd > 10.0 and me.get("energy", 0) > 40.0:
+                    sb_boost = True
+
+            # 2) Kill-loot corpse (3 cubes + weapon!)
+            if not sb_econ_lock and self.kill_loots and sb_los_mechs == 0 and hp_frac > 0.35:
+                for kx, ky, kz, kt in reversed(self.kill_loots):
+                    if abs(kz - z) > 4.5:
+                        continue
+                    kd = math.hypot(kx - x, ky - y)
+                    if kd > 75.0 or math.hypot(kx - ccx, ky - ccy) > cr * 0.88:
+                        continue
+                    near_e = min((math.hypot(kx - e["pos"][0], ky - e["pos"][1]) for e in visible), default=999.0)
+                    if near_e < 26.0:
+                        continue
+                    if not self.world.blocked(kx, ky, self.world.ground(kx, ky)):
+                        goal, goal_kind = (kx, ky), "loot"
+                        sb_econ_lock = True
+                        if kd > 10.0 and me.get("energy", 0) > 40.0:
+                            sb_boost = True
+                        break
+
+            # 3) Remembered weapon pickup (secondary empty or strict upgrade!)
+            if not sb_econ_lock and p["take_pickups"]:
+                pref = p["weapon_pref"]
+                cur_rank = pref.index(w1_kind) if (w1_kind and w1_kind in pref) else 99
+                held = held_kinds(me)
+                best_pk = None
+                best_psc = -1e18
+                pk_lim = p.get("snowball_pickup_r", 135.0) if sb_los_mechs == 0 else 28.0
+                for pid, (pkind, ppos, pt) in self.known_pickups.items():
+                    if pkind in held or pkind not in pref:
+                        continue
+                    prank = pref.index(pkind)
+                    if prank >= cur_rank:
+                        continue
+                    if abs(ppos[2] - z) > 4.5:
+                        continue
+                    pd = math.hypot(ppos[0] - x, ppos[1] - y)
+                    if pd > pk_lim or math.hypot(ppos[0] - ccx, ppos[1] - ccy) > cr * 0.88:
+                        continue
+                    near_e = min((math.hypot(ppos[0] - e["pos"][0], ppos[1] - e["pos"][1]) for e in visible), default=999.0)
+                    if near_e < 28.0:
+                        continue
+                    if self.world.blocked(ppos[0], ppos[1], self.world.ground(ppos[0], ppos[1])):
+                        continue
+                    sc = (120.0 - prank * 25.0) - pd * 0.8
+                    if sc > best_psc:
+                        best_psc = sc
+                        best_pk = (ppos[0], ppos[1], pd)
+                if best_pk is not None and (sb_los_mechs == 0 or (best_pk[2] < 28.0 and hp_frac > 0.45)):
+                    goal, goal_kind = (best_pk[0], best_pk[1]), "weapon"
+                    sb_econ_lock = (best_pk[2] < 32.0 or w1 is None)
+                    if best_pk[2] > 10.0 and me.get("energy", 0) > 45.0:
+                        sb_boost = True
+
+            # 4) Safe crate farming when no enemies around
+            if (sb_farm_npc is None and p.get("snowball_crate_farm", True)
+                    and sb_los_mechs == 0 and mclose > 88.0 and hp_frac > 0.45
+                    and (me.get("cubes", 0) < 10 or w1 is None)):
+                best_cr = None
+                best_crd = 48.0
+                for cr_it in obs.get("crates", []):
+                    cx, cy, cz = cr_it["pos"]
+                    if abs(cz - z) > 4.5:
+                        continue
+                    cd = math.hypot(cx - x, cy - y)
+                    if cd < best_crd and self.world.shot_clear((x, y, my_muzzle_z), (cx, cy, cz + 1.2)):
+                        best_crd = cd
+                        best_cr = cr_it
+                sb_farm_crate = best_cr
+        elif roaming:
             goal, goal_kind = seek_goal(obs, me, p, self.world, goal_threats, t,
                                         (ccx, ccy), cr, self.seed)
         else:
@@ -367,9 +516,6 @@ class Brain:
         # of the survival-first default, kept behind a switch because the
         # simulator's squad punishes it while the real squad may not.
         v2 = bool(p.get("combat_v2", False))
-        w1 = me["weapons"][1] if len(me.get("weapons") or []) > 1 else None
-        w1_kind = w1.get("kind") if w1 else None
-        my_light_r = float((w1 or {}).get("stats", {}).get("range", self.cfg_light_range)) if w1_kind == "lightning" else 0.0
         hunting = False
         duel_tgt = None
         duel_want = p["hunt_standoff"]
@@ -377,7 +523,7 @@ class Brain:
         tgt_has_light = False
         los_threats = 0
         if v2 and visible:
-            my_muzzle = (x, y, z + me.get("stats", {}).get("muzzle_height", self.world.muzzle_height))
+            my_muzzle = (x, y, my_muzzle_z)
             for e in visible:
                 ed0 = math.hypot(e["pos"][0] - x, e["pos"][1] - y)
                 if ed0 < 165.0 and self.world.shot_clear(my_muzzle, target_center(e, self.world.size_per_cube, self.world.height, p["aim_height_frac"])):
@@ -385,6 +531,7 @@ class Brain:
 
         hunt_hp = (0.20 if v2 else p["hunt_hp"]) * (0.6 if self.press else 1.0)
         if (p["hunt_enabled"] and not emergency and not self.disengage
+                and not sb_econ_lock
                 and hp_frac > hunt_hp
                 and t < p["hunt_until"] and not (t < self.flee_until)):
             cand = [e for e in visible
@@ -411,10 +558,10 @@ class Brain:
                 e = min(cand, key=rank)
                 duel_tgt = e
                 ed = math.hypot(e["pos"][0] - x, e["pos"][1] - y)
+                ew = e.get("weapons") or []
+                tgt_has_light = "lightning" in ew
+                ehp = e.get("hp") or 1400.0
                 if v2:
-                    ew = e.get("weapons") or []
-                    tgt_has_light = "lightning" in ew
-                    ehp = e.get("hp") or 1400.0
                     if w1_kind == "lightning" and me.get("energy", 0) > 15 and (not tgt_has_light or me["hp"] >= ehp * 0.8):
                         duel_want = min(30.0, my_light_r * 0.68)
                     elif tgt_has_light:
@@ -423,9 +570,20 @@ class Brain:
                         duel_want = 82.0
                     else:
                         duel_want = 52.0
-                    my_muzzle = (x, y, z + me.get("stats", {}).get("muzzle_height", self.world.muzzle_height))
+                    my_muzzle = (x, y, my_muzzle_z)
                     duel_los = self.world.shot_clear(my_muzzle, target_center(e, self.world.size_per_cube, self.world.height, p["aim_height_frac"]))
                     if ed > duel_want or not duel_los:
+                        goal, goal_kind = (e["pos"][0], e["pos"][1]), "hunt"
+                        hunting = True
+                elif sb:
+                    # Weapon-aware standoff while preserving HEAD's proven kiting!
+                    if w1_kind == "lightning" and me.get("energy", 0) > 18 and (not tgt_has_light or me["hp"] >= ehp * 0.85):
+                        duel_want = min(28.0, my_light_r * 0.65)
+                    elif tgt_has_light:
+                        duel_want = max(58.0, self.cfg_light_range + 14.0)
+                    else:
+                        duel_want = p["hunt_standoff"]
+                    if ed > duel_want:
                         goal, goal_kind = (e["pos"][0], e["pos"][1]), "hunt"
                         hunting = True
                 elif ed > p["hunt_standoff"]:
@@ -503,6 +661,7 @@ class Brain:
                 self.kite_until = -1.0
         elif (p["kite_enabled"] and not emergency and not (t < self.flee_until)
                 and recent_hits
+                and not (sb and duel_tgt is not None and (duel_tgt.get("hp") or 1400.0) <= 340.0 and hp_frac > 0.25)
                 and (mclose < p["kite_range"] or self.disengage)
                 and (hp_frac < p["kite_hp"] or len(recent_hits) >= 2
                      or self.disengage)):
@@ -877,14 +1036,14 @@ class Brain:
         quiet = (p["quiet_when_safe"] and not emergency and close > 70.0
                  and npc_close > 55.0 and t < p["late_survival_t"] and not escaping
                  and not roaming and not kiting and not hunting and not roof_active
-                 and goal_kind != "roof")
+                 and goal_kind not in ("roof", "cube", "weapon", "loot"))
         if quiet:
             speed_scale = min(1.0, p["quiet_speed"] / max(1.0, self.walk_speed))
         boost = bool(p["emergency_boost"] and (emergency or (hp_frac < 0.25 and mclose < 30.0)))
         # NPC drones move at 5 m/s; a quiet 4.85 m/s walk cannot break aggro.
         # Sprint out of their leash instead of eating 25 damage every second.
-        npc_aggro = npc_close < 38.0 and (self.recent_damage > 0.05 or escaping)
-        if (escaping or npc_aggro or kiting or duel_boost or roof_boost) and me.get("energy", 0) > 25:
+        npc_aggro = sb_farm_npc is None and npc_close < 38.0 and (self.recent_damage > 0.05 or escaping)
+        if (escaping or npc_aggro or kiting or duel_boost or roof_boost or sb_boost) and me.get("energy", 0) > 25:
             boost = True
         if roof_jet:
             boost = True
@@ -898,9 +1057,7 @@ class Brain:
         # ---- firing gate -------------------------------------------------
         if roof_hold_fire:
             allow_fire = False
-        elif v2:
-            # In v2, pick_target enforces anti-aggro discipline; allow_fire only
-            # suppresses fire when explicitly recovering/hiding or out of zone.
+        elif wv2:
             allow_fire = bool(p["fire_enabled"] and not covered)
         else:
             cornered = mclose < 32.0 and hp_frac > p["hp_floor"]
@@ -922,10 +1079,28 @@ class Brain:
                             and self.world.shot_clear((x, y, ey), e["pos"])):
                         allow_fire = True
                         break
-        # crate / NPC farming is opt-in and only when nothing else is happening
+        # crate / NPC farming
         combat_targets = list(visible)
         farm = False
-        if not allow_fire and t < p["early_farm_until"] and mclose > 110.0 and not emergency:
+        if sb and not emergency and not roof_hold_fire and sb_los_mechs == 0:
+            if sb_farm_npc is not None:
+                combat_targets.append({
+                    "id": sb_farm_npc["id"], "kind": "mech",
+                    "pos": [sb_farm_npc["pos"][0], sb_farm_npc["pos"][1], sb_farm_npc["pos"][2] - 2.75],
+                    "vel": list(sb_farm_npc.get("vel", [0, 0, 0])),
+                    "hp": sb_farm_npc.get("hp", 350), "max_hp": 350, "cubes": 0,
+                    "weapons": [], "aim": [0, 0], "charging": False,
+                })
+                farm = True
+            elif sb_farm_crate is not None:
+                combat_targets.append({
+                    "id": sb_farm_crate["id"], "kind": "mech",
+                    "pos": [sb_farm_crate["pos"][0], sb_farm_crate["pos"][1], sb_farm_crate["pos"][2] - 3.3],
+                    "vel": [0, 0, 0], "hp": sb_farm_crate.get("hp", 300), "max_hp": 300,
+                    "cubes": 0, "weapons": [], "aim": [0, 0], "charging": False,
+                })
+                farm = True
+        elif not allow_fire and t < p["early_farm_until"] and mclose > 110.0 and not emergency:
             if p["crate_farm"]:
                 for cr in obs.get("crates", []):
                     d = math.hypot(cr["pos"][0] - x, cr["pos"][1] - y)
@@ -999,7 +1174,7 @@ class Brain:
         if w0 and w0.get("kind") == "gun" and w0.get("reload", 0) == 0:
             mag = int(w0.get("stats", {}).get("mag", self.cfg_gun_mag))
             ammo = int(w0.get("ammo", mag))
-            if ammo == 0 or (v2 and not self.combat.last_had_target and ammo <= max(6, mag - 4)):
+            if ammo == 0 or (wv2 and not self.combat.last_had_target and ammo <= max(6, mag - 4)):
                 act["reload"] = True
         # upgrade offer
         pick = pick_upgrade(obs.get("offer"), p, me, self.cfg)

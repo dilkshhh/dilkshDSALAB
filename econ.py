@@ -104,6 +104,71 @@ def _effect_value(path, old, new, held):
     return 0.5 * abs(d)
 
 
+def _effect_value_v2(path, old, new, held, hp_frac=1.0):
+    """Fixed marginal value from hello.config.upgrades (E43).
+
+    Fixes the v1 bug where armor scored 4.80 (dead last) and plating scored
+    10.50 (below servos=18, gyros=18, sensors=13) due to multi-effect summing.
+    """
+    d = new - old
+    if path == "mech.hp":
+        # +15% max HP AND instantly heals the difference!
+        base = 26.0 * (new / max(1.0, old) - 1.0) / 0.15
+        heal_bonus = 8.0 * (1.0 - max(0.0, min(1.0, hp_frac)))
+        return base + heal_bonus
+    if path == "mech.armor":
+        # Exact EHP multiplier: (1 - old) / (1 - new) - 1 (~8.7% per 0.08 stack, increasing!)
+        ehp_gain = (1.0 - old) / max(0.05, 1.0 - new) - 1.0
+        return 25.0 * ehp_gain / 0.087
+    if path in ("mech.walk_speed", "mech.boost_speed"):
+        return 5.5 * (new / max(1e-6, old) - 1.0) / 0.08
+    if path == "mech.energy":
+        return 7.0 * d / 30.0
+    if path == "mech.energy_regen":
+        return 7.5 * (new / max(1e-6, old) - 1.0) / 0.30
+    if path in ("mech.boost_drain", "mech.jet_drain"):
+        return 4.0 * (old / max(1e-6, new) - 1.0) / 0.25
+    if path == "mech.regen_per_s":
+        return 11.0 * (new / max(1e-6, old) - 1.0) / 0.60
+    if path == "mech.regen_delay":
+        return 9.0 * (old - new) / 1.5
+    if path in ("mech.turn_rate", "mech.pitch_rate"):
+        return 4.0 * (new / max(1e-6, old) - 1.0) / 0.30
+    if path == "mech.near_range_bonus":
+        return 2.5 * d / 15.0
+    if path == "mech.vision_bonus":
+        return 2.5 * d / 25.0
+    if path == "mech.hearing":
+        return 2.0 * (old / max(1e-6, new) - 1.0) / 1.0
+    if not path.startswith("weapons.") or not held:
+        return 0.0
+    if path.endswith(".damage"):
+        return 23.0 * (new / max(1e-6, old) - 1.0) / 0.15
+    if path.endswith(".cooldown"):
+        return 24.0 * (old / max(1e-6, new) - 1.0) / 0.15
+    if path.endswith(".speed"):
+        return 9.0 * (new / max(1e-6, old) - 1.0) / 0.25
+    if path.endswith(".range"):
+        return 14.0 * (new / max(1e-6, old) - 1.0) / 0.20
+    if path.endswith(".mag"):
+        return 12.0 * d / 8.0
+    if path.endswith(".reload"):
+        return 10.0 * (old / max(1e-6, new) - 1.0) / 0.25
+    if path.endswith(".splash_radius"):
+        return 14.0 * (new / max(1e-6, old) - 1.0) / 0.30
+    if path.endswith(".charge"):
+        return 21.0 * (old / max(1e-6, new) - 1.0) / 0.33
+    if path.endswith(".pierce"):
+        return 10.0 * d
+    if path.endswith(".chain"):
+        return 14.0 * d
+    if path.endswith(".cone_deg"):
+        return 8.0 * (new / max(1e-6, old) - 1.0) / 0.20
+    if path.endswith(".energy"):
+        return 14.0 * (old / max(1e-6, new) - 1.0) / 0.54
+    return 0.5 * abs(d)
+
+
 def upgrade_value(choice, params, me=None, cfg=None, exact=True):
     """Exact marginal value from hello.config.upgrades, or legacy fallback."""
     uid = choice.get("id", "")
@@ -119,6 +184,8 @@ def upgrade_value(choice, params, me=None, cfg=None, exact=True):
     held = {w["kind"] for w in me.get("weapons", []) or [] if w}
     if u.get("requires") and u["requires"] not in held:
         return 0.0
+    use_v2 = bool(params.get("upgrade_v2", False) or params.get("snowball_v1", False))
+    hp_frac = float(me.get("hp", 1400.0)) / max(1.0, float(me.get("max_hp", 1400.0)))
     total = 0.0
     for eff in u.get("effects", []) or []:
         path = eff.get("path", "")
@@ -130,7 +197,11 @@ def upgrade_value(choice, params, me=None, cfg=None, exact=True):
             new *= float(eff["mul"])
         if "add" in eff:
             new += float(eff["add"])
-        total += _effect_value(path, old, new, bool(u.get("requires") in held if u.get("requires") else True))
+        is_held = bool(u.get("requires") in held if u.get("requires") else True)
+        if use_v2:
+            total += _effect_value_v2(path, old, new, is_held, hp_frac)
+        else:
+            total += _effect_value(path, old, new, is_held)
     return total
 
 

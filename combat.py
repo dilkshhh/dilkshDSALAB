@@ -225,6 +225,7 @@ class Combat:
         dies, leaves line of sight, or something much better appears.
         """
         v2 = bool(self.p.get("combat_v2", False))
+        wv2 = v2 or bool(self.p.get("weapons_v2", False)) or bool(self.p.get("snowball_v1", False))
         px, py = me["pos"][0], me["pos"][1]
         src = muzzle(me)
         weapons = me.get("weapons") or []
@@ -269,7 +270,7 @@ class Combat:
             n_ok += 1
             score = d
             lethal = False
-            if v2:
+            if wv2:
                 if hp is not None and hp_conf > 0.0:
                     score -= 110.0 * hp_conf * (1.0 - hp_frac)
                     if _num(hp) <= self.p.get("v2_finish_hp", 420.0):
@@ -294,7 +295,7 @@ class Combat:
                 best = e
                 best_lethal = lethal
         if (focus_target is not None and self.focus_enabled
-                and not (v2 and best_lethal and not focus_lethal)
+                and not (wv2 and best_lethal and not focus_lethal)
                 and best_score > focus_score - self.focus_switch_margin):
             best = focus_target
         self.focus_id = best.get("id") if best is not None else None
@@ -422,7 +423,7 @@ class Combat:
                      allow_charge=None):
         """One final torso aim; each slot fires only if compatible with it."""
         p = params
-        v2 = bool(p.get("combat_v2", False))
+        v2 = bool(p.get("combat_v2", False)) or bool(p.get("weapons_v2", False)) or bool(p.get("snowball_v1", False))
         weapons = me["weapons"]
         src = muzzle(me)
         self.has_mortar = any(w and w.get("kind") == "mortar" for w in weapons)

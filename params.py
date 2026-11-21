@@ -53,7 +53,7 @@ DEFAULT = {
     "scan_enabled": True,         # sweep the torso when idle to widen the vision wedge
     "scan_period_s": 7.0,
     # --- weapons -------------------------------------------------------
-    "weapon_pref": ["laser", "mortar", "lightning", "gun"],
+    "weapon_pref": ["lightning", "laser", "mortar", "gun"],
     "gun_min_hit": 1.25,          # fire only if predicted miss < this * target radius
     # Damage split across many targets produces damage but no kills, and place
     # only improves when a bot actually dies.
@@ -186,6 +186,14 @@ DEFAULT = {
     "roof_reload_duck": True,     # step back behind roof edge during gun reload
     "roof_laser_duck": True,      # step back behind roof edge when enemy charges laser
     "roof_max_seek": 220.0,       # max distance to seek a climbable roof
+    # --- snowball economy + weapons_v2 (E43) ----------------------------
+    "snowball_v1": True,          # A/B E43: +0.55 ± 0.26 across 96 matches (+0.48 train / +0.62 holdout)
+    "weapons_v2": False,          # aligned gun, gun+lightning shared-pitch dual-wield, full/lethal laser, proactive reload
+    "upgrade_v2": False,          # fixed EHP/DPS marginal weights (fixes armor=4.80 & plating=10.50 bugs)
+    "snowball_npc_farm": True,    # kill nearby NPC drones (350 HP -> 2 cubes) when safe
+    "snowball_crate_farm": True,  # break nearby crates (300 HP -> 1 cube + 50% weapon) when safe
+    "snowball_pickup_r": 135.0,   # seek remembered/visible weapons within this range
+    "snowball_cube_r": 50.0,      # collect visible cubes within this range
 }
 
 

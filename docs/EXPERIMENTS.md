@@ -315,6 +315,32 @@ and peek edges to shoot ground enemies. Also fixed an A* waypoint-index bug in
 **Verdict:** Rooftop camping reproduces the exact warden/D-09 trade (+10 s life, −0.42 kills,
 −0.23 score) and gets punished 8× harder by mortars. Default stays `roof_enabled: False`.
 
+### E43 — Snowball economy + weapons v2 (`snowball_v1`, adopted)
+Combined five orthogonal fixes while preserving HEAD's proven occlusion-kiting survival:
+1. **Fixed exact upgrade valuation (`econ._effect_value_v2`)**: fixed the bug where `armor`
+   scored 4.80 (dead last) and `plating` scored 10.50 (below `servos=18, gyros=18, sensors=13`).
+2. **Weapons v2 arbiter (`combat.py`)**: `weapon_pref=[lightning, laser, mortar, gun]`,
+   shared-pitch gun+lightning dual-wielding (347–427 DPS), full/lethal laser charge with
+   0.65 s LOS-flicker hold guard, aligned-only gun firing, proactive between-fight reload,
+   and weapon-aware hunt standoff (28 m with lightning, 58 m vs enemy lightning).
+3. **Persistent pickup memory (`known_pickups`)**: remember seen floor/drop weapons and
+   detour when slot 1 is empty or a strict upgrade is nearby.
+4. **Aggressive cube & kill-loot collection**: scoop loose cubes (instant +56 HP + +4 % dmg)
+   and recent 3-cube kill corpses.
+5. **Safe NPC drone (350 HP → 2 cubes) & crate (300 HP → 1 cube + 50 % weapon) farming**
+   when no enemy mech has LOS.
+
+| Set | Base | E43 (`snowball_v1`) | Paired Δ | Per-range Δ |
+| --- | --- | --- | --- | --- |
+| train (n=48) | 1.98 / 1.25k / 74.7s | **2.46** / **1.67k** / 75.2s | **+0.48 ± 0.38** (+0.42k, +0.4s) | +0.88 / −0.31 / +0.88 |
+| holdout (n=48) | 1.67 / 1.23k / 65.9s | **2.29** / **1.71k** / 69.8s | **+0.62 ± 0.37** (+0.48k, +4.0s) | **+0.62 / +0.50 / +0.75** |
+| **combined (n=96)** | **1.82 / 1.24k / 70.3s** | **2.38 / 1.69k / 72.5s** | **+0.55 ± 0.26** (**+0.45k**, +2.2s) | **5 of 6 ranges positive** |
+
+Metrics (96-match means): dealt 2,728 → **3,307** (+579), taken 1,741 → **1,854** (+113),
+trade ratio 1.57× → **1.78×**, dmg/kill 2,200 → **1,957**, cubes 0.37 → **1.39** (3.8×).
+**First policy in the entire project to break the 2.10 local ceiling on both train and holdout.**
+Adopted as default.
+
 ---
 
 ## Rejected
