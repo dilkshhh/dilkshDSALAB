@@ -157,6 +157,89 @@ but the kill collapse is a policy effect, not a map effect.
 
 ---
 
+## Round 2 — follow-ups from the external reviews
+
+### E35 — Strict fire gate (fixing D15)
+`allow_fire` only scaled candidate utility while the branches passed literal
+`fire=True`, so a zeroed candidate could still win the argmax and shoot. Added
+`fire_gate_strict` to propagate the permission bit into the fire flag.
+
+**Validation first.** With `fire_enabled=False, recip_fire=False`:
+
+| | dealt | shots | kills | score |
+| --- | --- | --- | --- | --- |
+| strict OFF | 2,422 | 65.6 | 1.12 | 1.75 |
+| strict ON | **0** | **0.0** | 0.00 | **0.38** |
+
+So the old "pacifist" was never a pacifist, and the real control is **0.38** — a
+bot that never fights dies first almost every match. That is the strongest
+possible refutation of passive play.
+
+**A/B of strict mode with normal firing** (3 ranges, n=48): score **1.21** vs
+1.81, kills 0.67 vs 1.17, death 61 s vs 70 s → **−0.60 ± 0.27**.
+
+**Verdict: the fix is correct, the gate is wrong.** Suppressing fire when the gate
+closes costs half a kill and 9 s of life. The gate closes mainly because
+`engage_dist = engage_range × aggression / adapt` shrinks to ~68 m under pressure.
+Default stays `fire_gate_strict: False`; the flag exists so hold-fire policies
+(regen cycle, ambush) can finally be tested.
+
+### E36 — Pickup detour radius
+`loot_goal` hard-coded a 30 m detour for floor weapons, smaller than the gap
+between spawns. Parametrised as `pickup_detour_r`, tested 80 and 140.
+
+| | score | kills | dealt |
+| --- | --- | --- | --- |
+| 30 (default) | 1.90 | 1.23 | 2,788 |
+| 80 | 1.96 | 1.29 | 2,754 |
+| 140 | 1.94 | 1.25 | 2,814 |
+
+**Null.** Damage dealt does not move at all, so the detour never fires: `loot_goal`
+is gated behind "no threat within 55 m", which is rare while a squad hunts us.
+Raising the radius cannot fix a condition that is never met.
+
+### E37 — Early weapon roam, hunting left on
+`roam_until 45, weapon_seek_range 200`. This is the mechanism that actually works:
+measured secondary-weapon uptime goes from **8 % to 35 %** of decisions (laser,
+4 matches, 250 sampled decisions).
+
+| Set | score | kills | death | per-range |
+| --- | --- | --- | --- | --- |
+| train (n=48) | 1.96 (base 1.94) | **1.42** (base 1.27) | 64 s | 2.44 / 2.44 / 1.00 |
+| holdout (n=48) | 2.10 (base 1.96) | **1.46** (base 1.42) | 74 s | 2.06 / 1.69 / 2.56 |
+| paired | +0.02 ± 0.30 / +0.15 ± 0.28 | +0.15 / +0.04 | | |
+
+**Inconclusive by score, positive on kills and on the mechanism.** 4× weapon uptime
+producing no damage increase is the interesting part — see E39.
+
+### E38 — Gun-only control (`take_pickups: False`)
+If the secondary is worth carrying, removing it should hurt.
+
+| Set | score | kills | dealt |
+| --- | --- | --- | --- |
+| train, gun-only | 1.79 (base 1.94) | 1.15 (base 1.27) | 2,636 |
+| holdout, gun-only | 1.77 (base 1.96) | 1.15 (base 1.42) | 2,579 |
+
+A secondary is worth **~0.17**. Real but small — it is not a 3× damage lever.
+
+### E39 — Full-charge laser release
+`laser_min_charge 0.45` releases at 45 % charge, where `frac = 0.35 + 0.65×0.45 =
+0.64`, i.e. 202 damage for a 1.99 s cycle = **101 dps — worse than the gun's 187**.
+Raising it to 0.9 gives 294 damage / 2.33 s = 126 dps.
+
+| Set | config | score | kills | dealt |
+| --- | --- | --- | --- | --- |
+| train | charge 0.9 | 1.90 | 1.15 | 2,755 |
+| train | charge 0.9 + roam45 | 1.92 | 1.38 | 2,917 |
+| holdout | charge 0.9 | 1.79 | 1.23 | 2,553 |
+| holdout | charge 0.9 + roam45 | 2.12 | 1.46 | 3,037 |
+
+Noise. The laser is at best ~15 % better than the gun at realistic hit rates, so
+**hypothesis H1 (a laser unlocks 5 kills) is dead.** That is the most important
+negative result of this round: weapon quality is not the missing 3×.
+
+---
+
 ## Rejected
 
 | # | Change | Result |

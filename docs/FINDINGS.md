@@ -55,18 +55,22 @@ Nine policy variants, same 16 seeds:
 | Policy | Death time | Score | Kills |
 | --- | --- | --- | --- |
 | default | 59 s | 2.00 | 1.38 |
-| "true pacifist" (fire off, hunt off) | 56 s | 1.69 | 1.19 |
+| "pacifist" as originally run (fire off, but the gate was inert) | 56 s | 1.69 | 1.19 |
+| **true pacifist, gate fixed** | — | **0.38** | **0.00** |
 | coward (fire off, kite always) | 58 s | 1.75 | 1.31 |
 | no kiting, no hunting | 44 s | 1.38 | 1.19 |
 | hide in cover always | 66 s | 2.00 | 1.50 |
 | kite always, range 200 | 74 s | 1.88 | 1.44 |
 | turtle | 73 s | 1.75 | 1.25 |
 
-Nothing exceeds ~74 s, and the "pacifist" row is **suspect**: the fire gate cannot
-suppress fire (F11), so that arm still dealt 2,606 damage. Re-run it after E15.
+**The first pacifist row was invalid** — the fire gate cannot suppress fire (F11),
+so that arm still dealt 2,606 damage. With the gate fixed (E35) a real pacifist
+deals **0 damage and scores 0.38**: it dies first in almost every match. That is the
+cleanest refutation of passive play we have, and it also means the environmental
+death rate for a bot that never fights is only ~0.38/match.
 
-What survives the caveat: **kiting is worth ~15 s** (44 s without it), **cover is
-worth ~7 s**, and **no policy variant we have tried reaches 100 s**.
+What survives: **kiting is worth ~15 s** (44 s without it), **cover is worth ~7 s**,
+**no policy variant we have tried reaches 100 s**, and **doing nothing scores 0.38**.
 
 ## F6 — Survival-first is a losing trade, tested twice `[measured] E13, E6`
 
@@ -96,28 +100,36 @@ back.
 Corollary: chip damage at long range is close to worthless, and *dealing* damage
 resets our own regen timer, so poking also costs us healing.
 
-## F8 — Weapon DPS, at realistic hit rates `[inferred from fact + model]`
+## F8 — Weapon DPS, at realistic hit rates `[measured, E38, E39]`
 
 Nominal (perfect accuracy): gun 45/0.24 = **187 dps**; laser 315/(0.75 charge +
 1.65 cooldown) = **131 dps**; lightning 60/0.25 = **240 dps** but only inside 45 m;
 mortar 200/2.6 = 77 dps plus 160 splash.
 
-At realistic hit probabilities (warden's hit model: gun ≈ 0.55, laser ≈ 0.9 because
-it is hitscan, mortar ≈ 0.3): gun ≈ 102, laser ≈ 131, mortar ≈ 57, **lightning ≈
-240 inside 45 m**.
+But the laser is only 131 dps **at full charge**, and we release at
+`laser_min_charge 0.45`, where `frac = 0.35 + 0.65×0.45 = 0.64` → 202 damage per
+1.99 s cycle = **101 dps, worse than the gun**. Raising the release threshold to
+0.9 only recovers it to 126 dps (E39).
 
-Two things follow and neither is implemented:
-- Our `weapon_pref` ranks lightning **last**, but inside 45 m it is the highest-DPS
-  weapon in the game.
-- The laser beats the gun on expected damage despite lower nominal DPS, and has
-  280 m range vs 230.
+Measured: removing the secondary entirely costs **~0.17 score** (E38). The laser is
+therefore worth carrying but is *not* a damage multiplier — it is roughly
+DPS-neutral with the gun and better only because it is hitscan.
 
-## F9 — Early weapon acquisition is weakly positive and the only change where kills moved twice `[measured] E14`
+**Consequence: hypothesis H1 is dead.** "Acquire a laser, then kill 5" does not
+work, because the laser is not 3× the gun. The missing factor is elsewhere.
 
-`roam_until 45, weapon_seek_range 200, hunt off`: **+0.46 ± 0.30** on train (all
-three ranges positive, Δkills +0.46) and **+0.10 ± 0.24** on holdout (Δkills +0.19).
-Inconclusive by our own standard, but the mechanism is the only one that can raise
-the damage ceiling, so it stays on the shortlist.
+Lightning remains the anomaly: 240 dps inside 45 m, and we rank it **last**.
+
+## F9 — Weapon uptime is the real acquisition problem `[measured, E37]`
+
+Baseline: we hold a secondary weapon in **14 % of decisions** (laser 8 %, lightning
+6 %) — 86 % of the match is fought with the 45-damage gun. Enabling early roam
+(`roam_until 45`) lifts laser uptime to **35 %**.
+
+Yet damage dealt does not rise, because of F8: the laser is DPS-neutral. So weapon
+acquisition is a *small* positive (~+0.15, E37) rather than the missing 3×. It is
+still worth doing — kills rose on both train and holdout — but do not expect it to
+close a 5.96 gap.
 
 ## F10 — The local proxy under-rewards aggression `[measured] E7`
 

@@ -33,6 +33,11 @@ DEFAULT = {
     "engage_range": 240.0,        # only consider fighting inside this range
     "fire_enabled": True,
     "fire_max_range": 175.0,
+    # The gate used to only scale candidate utility while the weapon branches
+    # passed a literal fire=True, so a zeroed candidate could still win the argmax
+    # and shoot.  That is why every fire-discipline experiment measured flat.
+    # Strict mode propagates the permission bit into the fire flag.
+    "fire_gate_strict": False,    # A/B: see EXPERIMENTS E35
     "early_farm_until": 150.0,    # farm crates / NPCs / drops before this match time
     "late_survival_t": 250.0,     # after this, never shoot unless cornered
     "hp_floor": 0.28,             # below this HP fraction, disengage completely
@@ -97,7 +102,10 @@ DEFAULT = {
     "trade_flee_ratio": 0.65,     # dealt/taken below this = losing it
     "trade_flee_hp": 0.32,        # ... or this hurt, disengage
     # --- early roam / economy -------------------------------------------
-    "roam_until": 0.0,            # actively seek weapons + cubes before this t
+    # Measured (E37): secondary-weapon uptime rises 8% -> 35% and kills rise on
+    # both train and holdout, but score is flat.  Aggression-flavoured changes
+    # have transferred better officially than locally (F10), so this ships.
+    "roam_until": 45.0,           # actively seek weapons + cubes before this t
     # --- kiting the coordinated squad -----------------------------------
     "kite_enabled": True,         # A/B: +0.55 paired, death t 80 -> 105
     "kite_hp": 0.97,              # break contact below this HP fraction
@@ -112,7 +120,12 @@ DEFAULT = {
     "kite_cover": True,           # steer the break toward terrain occlusion
     "kite_cover_probe": 34.0,     # how far ahead the break heading is sampled
     "kite_cover_cache_s": 1.0,    # recompute the break heading this often
-    "weapon_seek_range": 130.0,
+    "weapon_seek_range": 200.0,
+    # Measured: we hold a secondary weapon in only 14% of decisions (laser 8%,
+    # lightning 6%), so 86% of the match is fought with the 45-damage gun.  The
+    # detour radius was hard-coded at 30 m, which is smaller than the gap between
+    # floor spawns, so the bot almost never reached one.
+    "pickup_detour_r": 30.0,      # A/B: 80 / 140 (EXPERIMENTS E36)
     "roam_loot_range": 95.0,
     "roam_omega": 0.16,           # rad/s of the exploration sweep
     "roam_goal_frac": 0.55,       # sweep radius as a fraction of the circle

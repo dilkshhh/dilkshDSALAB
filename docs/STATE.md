@@ -50,37 +50,49 @@ H3 is the one that keeps being right. Treat local score as a *floor* on quality,
 not a ranking of candidates — but do not ignore a local regression of −0.7 either
 (that is what warden produced, E13).
 
+## The local instrument is exhausted
+
+Every change in round 2 landed inside ±0.2, while official scores move in steps of
+0.6. Repeated nulls: strict fire gate (−0.60, so the *fix* is right but the gate is
+wrong), pickup detour radius (0.00), early weapon roam (+0.02 / +0.15), full-charge
+laser (−0.02 / +0.16), gun-only (−0.17). Meanwhile a purpose-built replacement
+policy scored −0.7, and a single knob (`kite_hp`) moved nothing across four values.
+
+**Conclusion: local A/B can no longer rank candidates.** It can still reject a
+−0.7 regression and confirm a mechanism is wired (weapon uptime 8 % → 35 %), but it
+cannot tell +0.1 from 0.0. From here, the official board is the better instrument —
+and a worse submission does **not** damage the best score, so probes are nearly free
+except for the human's time.
+
 ## Next actions, ranked
 
-1. **Fix the fire gate so it can actually suppress fire** (E15). `allow_fire` only
-   scales candidate *utility*; the weapon branches pass literal `fire=True`, so the
-   gate never suppresses anything. Consequence: our "never fire" control still
-   dealt 2,606 damage, which invalidates the pacifist row of the survival table and
-   means we cannot test any hold-fire policy. Patch behind
-   `params["fire_gate_strict"]`, A/B it, then make it default if it holds.
-2. **Then test the regen cycle properly.** 45 HP/s after 5 s of no damage dealt
-   *or taken* is the largest untapped resource in the game (a full bar is 31 s of
-   regen). It is untestable until (1) is fixed.
-3. **Damage conversion.** We deal 3,200–4,500 per match for 1.3 kills; one traced
-   match dealt 4,463 for zero. Damage that does not kill is refunded at 45 HP/s.
-   Consider a per-target damage ledger so fire commits to the target we have
-   already sunk damage into, rather than the lowest-HP one.
-4. **Weapon quality.** Early weapon acquisition is the only change where kills
-   moved on both train and holdout (+0.46 / +0.10, E14). The gun out-DPSes the
-   laser in theory (187 vs 131) but the laser wins at realistic hit rates and has
-   50 m more range; lightning is 240 dps inside 45 m and we rank it *last*.
-5. **Verticality.** We never jump or jet except to unstick. 259 prisms, 25 % of
-   loot on roofs, `jump_speed` 11 + `jet_accel` 34. Untested, and both external
-   reviewers flagged it.
+1. **Recover the official score for `7468dcb`.** It is the single most valuable
+   datum in the project: it is the only measurement of whether local-neutral
+   aggression transfers (hunt v1 went 1.83 → 2.44 that way). Without it we cannot
+   tell whether the current build is at 2.5 or 3.5, and every calibration argument
+   in `FINDINGS.md` F10 is extrapolation.
+2. **Submit the early-roam build as a probe.** `roam_until 45`,
+   `weapon_seek_range 200`. Kills up on train and holdout, weapon uptime 4×,
+   aggression-flavoured — the class that has historically transferred better
+   officially than locally. Set as defaults, run the sandbox conformance check,
+   commit, request submission.
+3. **Then, and only then, attack the real gap.** With H1 (laser) dead and H2
+   (survival) unsupported, the remaining explanation is H3 — the real squad is
+   weaker than the emulation — plus the duty-cycle problem: a shootable target
+   exists in only 21 % of decisions, and 44 % are terrain-blocked. Raising the duty
+   cycle is a positioning problem, not a weapon or survival problem.
+4. **Untested and cheap:** lightning preference (240 dps inside 45 m, currently
+   ranked last); rooftops (we never jump); the regen cycle (now testable via E35);
+   kill-loot collection (built, default off, never measured).
 
 ## What not to do
 
-- Do not tune the existing parameters. A 14-dimension sweep found no reliable
-  winner (E11). The space is exhausted.
+- Do not tune the existing parameters. E12 found no reliable winner.
 - Do not re-propose anything in `EXPERIMENTS.md` §Rejected without a new mechanism.
-- Do not trust a single seed range. Per-range deltas swing by up to 1.2 score
-  within one config.
-- Do not build a survival-first policy. Tested twice, both times worse (E13, E6).
+- Do not trust a single seed range. Per-range deltas swing up to 1.2.
+- Do not build a survival-first policy. Tested three times now: E13 (−0.77), E16,
+  and the true-pacifist control (0.38).
+- Do not assume a laser is a damage upgrade. It is DPS-neutral (F8).
 
 ## Open questions
 

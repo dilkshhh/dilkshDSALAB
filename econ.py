@@ -270,7 +270,7 @@ def loot_goal(obs, me, params, world, threats, t):
     for pk in obs.get("pickups", []):
         cx, cy = pk["pos"][0], pk["pos"][1]
         d = math.hypot(cx - x, cy - y)
-        if d < 30.0 and pk["kind"] not in held_kinds(me) and me["weapons"][1] is None:
+        if d < p["pickup_detour_r"] and pk["kind"] not in held_kinds(me) and me["weapons"][1] is None:
             cands.append((-d * 0.4 + 18.0, cx, cy, "pickup"))
 
     if p["crate_farm"] and t < p["early_farm_until"]:

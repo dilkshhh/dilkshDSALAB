@@ -399,6 +399,13 @@ class Combat:
         min_pitch, max_pitch = self._pitch_limits(me)
         dt = self.dt
         fire_gate = bool(allow_fire and p["fire_enabled"])
+        # The gate historically only scaled candidate *utility*, while the weapon
+        # branches passed a literal fire=True.  A zero-utility candidate can still
+        # win the argmax (all utilities zero), so the gate never actually
+        # suppressed a shot: our "never fire" control still dealt 2600 damage.
+        # With fire_gate_strict the permission bit is propagated into the fire
+        # flag itself, which is what every hold-fire policy needs.
+        strict = bool(p.get("fire_gate_strict", False))
         # Charging the laser is not the same decision as firing it: a charge
         # takes 0.75 s, and gating it behind permission-to-fire meant the
         # 315-damage weapon almost never charged (fire_gate is true in ~5% of
@@ -436,7 +443,7 @@ class Combat:
             gate = fire_gate and ready
             add(0, "gun", (yaw, pitch), pt, tol,
                 _num(st.get("damage"), 45.0) * hit_prob if gate else 0.0,
-                True, gate and hit_prob > 0.05)
+                (gate if strict else True), gate and hit_prob > 0.05)
 
         # --- slot 1: laser / lightning / mortar ----------------------------
         w1 = weapons[1] if len(weapons) > 1 else None
@@ -481,7 +488,8 @@ class Combat:
                 gate = fire_gate and ready
                 utility = _num(st.get("damage"), 60.0) * hit_prob - _num(st.get("energy"), 3.0) * 2.0
                 add(1, "lightning", (yaw, pitch), tc, d * math.tan(cone) + tr,
-                    utility if gate else 0.0, True, gate and hit_prob > 0.1, cone=cone)
+                    utility if gate else 0.0, (gate if strict else True),
+                    gate and hit_prob > 0.1, cone=cone)
             elif kind == "mortar":
                 v = _num(st.get("speed"), 72.0)
                 g = _num(st.get("gravity"), 22.0)
@@ -534,7 +542,8 @@ class Combat:
                         utility = (_num(st.get("damage"), 200.0)
                                    + _num(st.get("splash"), 160.0) * 0.5) * hit_prob
                         add(1, "mortar", (yaw, pitch), (ix, iy, pt[2]), tol,
-                            utility if gate else 0.0, True, gate and hit_prob > 0.1)
+                            utility if gate else 0.0, (gate if strict else True),
+                            gate and hit_prob > 0.1)
 
         if not candidates:
             return None, [False, False], False
