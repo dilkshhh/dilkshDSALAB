@@ -182,12 +182,46 @@ type Tuning struct {
 	laserSeek  float64
 	laserUp    bool
 	opening    bool
+
+	// Practice-squad experiments, all off unless buildVariant turns them on.
+	huntRange float64 // engage any visible mech this close while healthy (0 = off)
+	huntHP    float64 // ... only above this share of our health
+	seek      float64 // with nothing to do, walk to where a mech was seen at most this many seconds ago (0 = off)
+	seekRange float64 // ... no farther than this
+	seekHP    float64 // ... only above this share of our health
+	farmCubes float64 // stop shooting crates and drones for cubes once we hold this many (0 = no cap)
+	credit    bool    // a death right after the mech we were shooting dropped out of sight counts as ours
+}
+
+// buildVariant names the practice experiment this build plays: "base" (the build that scored 6.23),
+// "hunt", "seek", "credit" or "all". hunt/seek/farmCubes only act in the practice stance, so
+// free-for-all play is unchanged by them; credit also applies in a free-for-all (a death we probably
+// caused no longer counts towards spotting one).
+const buildVariant = "base"
+
+// rngSalt changes only the dice: builds that differ in it alone play the same game with other luck.
+var rngSalt uint64 = 0
+
+// variant applies buildVariant on top of the practice parameter set.
+func variant(p Tuning) Tuning {
+	switch buildVariant {
+	case "hunt":
+		p.huntRange, p.huntHP = 180, 0.6
+	case "seek":
+		p.seek, p.seekRange, p.seekHP = 20, 320, 0.7
+	case "all":
+		p.huntRange, p.huntHP = 180, 0.6
+		p.seek, p.seekRange, p.seekHP = 20, 320, 0.7
+		p.farmCubes = 6
+	}
+	return p
 }
 
 func defaults() Tuning {
 	return Tuning{retreatHP: 0.38, recoverHP: 0.8, gunRange: 85, lightRange: 28, laserRange: 85, engageDist: 60,
 		farmNPC: true, ghost: true, lootRadius: 90, crateUntil: 150,
-		dodge: true, noMortar: true, peek: true, laserFirst: true, crowdHide: true, practice: true}
+		dodge: true, noMortar: true, peek: true, laserFirst: true, crowdHide: true, practice: true,
+		credit: buildVariant == "credit" || buildVariant == "all"}
 }
 
 // squad is the parameter set used once the match is past the "practice" phase.
@@ -196,7 +230,7 @@ func squad(p Tuning) Tuning {
 	p.laserRange, p.lootRadius, p.crateUntil, p.stick = 120, 150, 1e9, 60
 	p.hpw, p.lowBonus, p.maxTarget, p.loseRule = 0.2, 100, 240, true
 	p.fightLoot, p.farmHP, p.laserSeek, p.laserUp = 70, 0.5, 240, true
-	return p
+	return variant(p)
 }
 
 // ---------------------------------------------------------------------------
@@ -219,8 +253,11 @@ type Agent struct {
 	startAlive  int
 	kills       int
 	otherDead   int
+	deadSeen    int // mechs dead at the last tick
+	credited    int // deaths put down to our own shooting without a kill event
 	npcHurt     float64
 	npcBearing  float64
+	seekBan     map[int]float64 // mechs we went looking for and did not find, until when
 
 	tracks  *omap[*Contact]
 	npcs    *omap[*Contact]
@@ -282,9 +319,9 @@ func NewAgent(h *Hello) *Agent {
 	if seed == 0 {
 		seed = h.Slot + 1
 	}
-	b := &Agent{cfg: h.Config, rng: newXorshift(uint64(seed)), P: defaults(),
+	b := &Agent{cfg: h.Config, rng: newXorshift(uint64(seed) + rngSalt*0x2545f4914f6cdd1d), P: defaults(),
 		tracks: newOmap[*Contact](), npcs: newOmap[*Contact](), crates: newOmap[*thing](), cubes: newOmap[*thing](), pickups: newOmap[*thing](),
-		bad: map[int]float64{}, routeAt: -99, strafe: 1, coverAt: -99, coverFailAt: -99, lastHurt: -100, lootID: -1,
+		bad: map[int]float64{}, seekBan: map[int]float64{}, routeAt: -99, strafe: 1, coverAt: -99, coverFailAt: -99, lastHurt: -100, lootID: -1,
 		homeAt: -99, stuckSince: -1, unstuckDir: [2]float64{1, 0}, lastThreat: -100, escAt: -99, stickID: -1, stickAt: -99, loseAt: -99,
 		mode: "idle"}
 	var w *World
@@ -459,7 +496,23 @@ func (b *Agent) perceive(o *Obs) {
 		b.base, b.baseSet = b.P, true
 		b.startAlive = o.Alive
 	}
-	if b.startAlive-o.Alive-b.kills > 0 {
+	dead := b.startAlive - o.Alive
+	if b.base.credit && dead > b.deadSeen && b.stickID >= 0 && now-b.stickAt < 6 {
+		// A death with no kill event for us, moments after we were shooting at a mech that is not in
+		// sight now: most likely ours (finished by splash or a drone, or the kill event is late). The
+		// house squad does not kill its own, so counting it as somebody else's would drop the practice
+		// stance for the rest of the match.
+		if t, ok := b.tracks.get(b.stickID); !ok || t.seen != now {
+			b.credited++
+		}
+	}
+	if dead > b.deadSeen {
+		b.deadSeen = dead
+	}
+	if c := dead - b.kills; b.credited > c {
+		b.credited = max(0, c) // a kill event arrived for a death we had guessed: never count it twice
+	}
+	if dead-b.kills-b.credited > 0 {
 		b.otherDead++
 	} else {
 		b.otherDead = 0
@@ -1219,7 +1272,8 @@ func (b *Agent) pickLoot(o *Obs, hpRatio float64, busy bool) *lootPick {
 	if b.early(o) {
 		farm = 0.4
 	}
-	if hpRatio > farm && !busy && b.P.crateUntil > now {
+	farmCap := b.P.farmCubes <= 0 || me.Cubes < b.P.farmCubes // past it: hunt, don't farm
+	if hpRatio > farm && !busy && b.P.crateUntil > now && farmCap {
 		for _, c := range b.crates.values() {
 			if hyp(c.pos[0]-x, c.pos[1]-y) < b.P.lootRadius {
 				consider("crate", c.id, c.pos, 0.6*cv)
@@ -1336,6 +1390,49 @@ func (b *Agent) exploreGoal(o *Obs, hpRatio float64, busy bool) (float64, float6
 		}
 	}
 	return bx, by, found
+}
+
+// seekGoal (practice stance, Tuning.seek > 0): with nothing to pick up and health to spare, head for
+// the last known place of the nearest mech seen recently. Practice is scored by how many house bots
+// are dead before us, and waiting for the next one to wander into view wastes the time in between.
+func (b *Agent) seekGoal(o *Obs, hpR float64) (float64, float64, bool) {
+	if b.P.seek <= 0 || !b.pracOn || hpR < b.P.seekHP {
+		return 0, 0, false
+	}
+	me := &o.Self
+	x, y := me.Pos[0], me.Pos[1]
+	walk := get(me.Stats, "walk_speed", 11.7)
+	var best *Contact
+	bd := math.Inf(1)
+	for _, t := range b.tracks.values() {
+		if b.now-t.seen > b.P.seek {
+			continue
+		}
+		if until, ok := b.seekBan[t.id]; ok && b.now < until {
+			continue
+		}
+		d := hyp(t.pos[0]-x, t.pos[1]-y)
+		if d > b.P.seekRange {
+			continue
+		}
+		if d < 22 && t.seen != b.now {
+			b.seekBan[t.id] = b.now + 20 // we are where it was and it is not here
+			continue
+		}
+		if b.now+d*1.4/walk+8 > b.zoneDeadline(&o.Zone, t.pos[0], t.pos[1], 6) {
+			continue // the zone would close on us there
+		}
+		if b.grid != nil && !b.grid.reachable(t.pos[0], t.pos[1]) {
+			continue // on a roof or somewhere we cannot walk to
+		}
+		if d < bd {
+			best, bd = t, d
+		}
+	}
+	if best == nil {
+		return 0, 0, false
+	}
+	return best.pos[0], best.pos[1], true
 }
 
 // ghostTrack is a fake target placed 80 units along the bearing we were last hit from.
@@ -1468,6 +1565,10 @@ func (b *Agent) decide(o *Obs, act *Action) {
 		} else if t.hp < 0.4*t.maxHP && t.dist < 160 {
 			t.engage = true
 		} else if facing && t.dist < 190 {
+			t.engage = true
+		} else if b.P.huntRange > 0 && t.los && t.dist < b.P.huntRange && hpR > b.P.huntHP {
+			// practice: shoot it rather than wait for it to turn our way. Only with a clear line of
+			// fire: an engaged mech behind a wall counts as a threat and would stop us looting.
 			t.engage = true
 		}
 		if t.engage && !t.los && t.dist < maxT && (near == nil || near.dist > t.dist) {
@@ -1694,6 +1795,9 @@ func (b *Agent) decide(o *Obs, act *Action) {
 		default:
 			mx, my = b.goTo(me, lp.pos[0], lp.pos[1])
 		}
+	} else if sx, sy, ok := b.seekGoal(o, hpR); ok {
+		mx, my = b.goTo(me, sx, sy)
+		mode = "seek"
 	} else if ex, ey, ok := b.exploreGoal(o, hpR, threat); ok {
 		mx, my = b.goTo(me, ex, ey)
 		mode = "explore"
