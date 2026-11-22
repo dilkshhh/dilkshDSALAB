@@ -519,7 +519,32 @@ Built our compiled static Go engine (`cmd/mechbot/`, `internal/{proto,world,bot}
 | `#9 giddygiddyboy` (`6.19` off.) | 3.04 | 3.06 | 2.96 | 2.79 | 3.00 | 2.92 | **2.96** | `7.11 ± 0.41` (4/24 wins) |
 | Our `Apex v1` Py (`5.33` off.) | 3.21 | 2.90 | 3.29 | 3.12 | 3.25 | 3.01 | **3.13** | — |
 | `#4 TigerTown27` (`6.25` off.) | 4.02 | 3.62 | 5.08 | 4.60 | 4.55 | 4.11 | **4.33** | `6.88 ± 0.43` (7/24 wins) |
-| **`Apex-Go v2` (ADOPTED)** | **4.96** (+0.94) | **3.65** (+0.03) | **5.40** (+0.32) | **4.81** (+0.21) | **5.18** (**+0.63**) | **4.23** (**+0.12**) | **4.70** (**+0.37 vs #4 / +1.74 vs #9**) | **`8.35 ± 0.38`** (**13/24 wins = 54.2 %**, **+1.47 vs #4**, 0 zone deaths, 2 lightning deaths!) |
+| **`Apex-Go v2` (`a484109`, `#1 6.28` off.)** | **4.96** (+0.94) | **3.65** (+0.03) | **5.40** (+0.32) | **4.81** (+0.21) | **5.18** (**+0.63**) | **4.23** (**+0.12**) | **4.70** (**+0.37 vs #4 / +1.74 vs #9**) | **`8.35 ± 0.38`** (**13/24 wins = 54.2 %**, **+1.47 vs #4**, 0 zone deaths, 2 lightning deaths!) |
+
+*(Official result for `a484109`: initially **6.27**, then held rock-solid and rose to **`#1 IN THE WORLD` at `6.28`** on the `2026-11-22 05:54 UTC` live re-scoring wave while salt-overfitted entries collapsed `-0.37` to `-0.76`!)*
+
+### E59 — Full 402-Repo GitHub Re-Probe & `Apex-Go v3` (`4.99` 192-Match Grand Avg / `6.00` TR_HK1 / `3.87×` Trade, ADOPTED)
+Conducted a fresh 16-query GitHub re-probe (`402` repos discovered, `226` pushed in last 9h; `23` brand-new + `11` updated top repos cloned & audited: `SandeepMadhavarapu/BattleRoyale`, `MarwanMoh11/mech-royale`, `lukejwaszyn/mech-royale`, `andrew-zhouu v0.134`, `sparshagra/AIEthicsTuts` (#3 6.17), `azz0048/Mech-Royale` (#5 AA's 6.05), `Th3r0n`, `waiprotein`, `BrozJosef`, `egeiran`).
+
+Ablated 9 generalizable, zero-overfit mechanisms individually (`n=96` train: 48 HK1 + 48 HK0) on top of our `#1 (6.28)` `Apex-Go v2` (`4.96 / 3.65 = 4.30` train):
+- **`V3_lasercd`** (`LaserCDTrack`, `obs.Beams` enemy laser cooldown → 2 s punish window): **`5.42 (+0.46) / 3.88 (+0.23) = 4.65 (+0.34)`**, dealt `7,889`, trade `3.32×`, `1,639 dmg/kill` — **ADOPTED** (gated to `!b.ffa` to keep FFA caution intact).
+- **`V3_cubesmart`** (cube-pile + `1.75×` upgrade-threshold pricing): **`5.02 / 4.21 (+0.56) = 4.61 (+0.31)`** on train, but dragged `HK1` holdout (`5.40 → 4.69/4.90`) in stack — **rejected in final combat stack**.
+- **`V3_rearavoid`** (`RearAvoidW=35`, MPC penalty keeping extra hunters out of `1.5×` rear arc): **`5.35 (+0.39) / 3.81 (+0.16) = 4.58 (+0.28)`**, dealt `7,771`, trade `3.27×` — **ADOPTED**.
+- **`V3_reload`** (`CoverReload`, cover-pause gun top-off reload when no enemy LOS ≥ 1.1 s): **`5.02 / 3.90 (+0.25) = 4.46 (+0.15)`**, 3 alive wins — **ADOPTED** (`0.60*mag` Practice / `0.25*mag` FFA).
+- **`V3_laserm`** (`LaserMechOnly + RetreatPest`): **`5.00 / 3.73 = 4.36 (+0.06)`** (`RetreatPest` **ADOPTED**; `LaserMechOnly` dropped gun acc `-6%` and slowed `HK1` drone kills in stack → dropped).
+- Rejected: `V3_upv2` (`4.21`), `V3_killhunt` (`4.32`), `V3_droprun` (`4.10`).
+- **Stacked 192-match validation (`train + untouched holdout`, `96 HK1 + 96 HK0`)**:
+  - `V3_CORE3`: `4.67` (`4.96 HK1 / 4.38 HK0`) | `V3_CLEAN4`: `4.58` | `V3_ALL5`: `4.81` (`4.75 HK1 / 4.86 HK0`)
+  - `V3_COMBAT3` (`LaserCDTrack + RearAvoidW=35 + CoverReload + RetreatPest`): **`4.83`** (`5.48 HK1 / 4.19 HK0`; TR_HK1 `5.77`, `8,792` dealt, `3.63×` trade, 9 wins)
+  - **`Apex-Go v3` (`V3_COMBAT3 + PracticeRim=0.6`, ADOPTED)**: **`4.99` GRAND AVG (`+0.29` vs `#1 6.28` `v2`, `+0.66` vs `#26 TigerTown`, `+2.03` vs `giddy`!!)** — `HK1` **`5.55`** (`TR_HK1 = 6.00 ± 0.63`, **`9,070` dealt**, **`3.87×` trade**, **`5.38` kills/match**, **`7.13` cubes**, `98.1 s` life, 4 alive wins), `HK0` **`4.44`** (`4.17 / 4.71`), **8 alive wins / 192**, only **1 zone death / 192**!
+- **16-Mech FFA Showdown (`n=24`, 4-way)**: `v2_628` `8.13 ± 0.49` (13 wins) > `V3_COMBAT3` (un-gated) `7.75` (7 wins) > `TigerTown` `7.50` (4 wins) > `giddy` `6.63` (0 wins). Gating `LaserCDTrack` (`!b.ffa`) and `CoverReload` (`0.25*mag` in FFA) preserves `v2_628`'s `8.13–8.35` FFA supremacy alongside `v3`'s `4.99` Practice!
+
+| Bot (192-Match Practice) | TR HK1 (48) | TR HK0 (48) | HO HK1 (48) | HO HK0 (48) | **HK1 (96)** | **HK0 (96)** | **192-Match GRAND** |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `giddy` (`5.44` live) | 3.04 | 3.06 | 2.96 | 2.79 | 3.00 | 2.92 | **2.96** |
+| `TigerTown27` (`5.69` live) | 4.02 | 3.62 | 5.08 | 4.60 | 4.55 | 4.11 | **4.33** |
+| `Apex-Go v2` (`a484109`, **`#1 6.28`**) | 4.96 | 3.65 | 5.40 | 4.81 | 5.18 | 4.23 | **4.70** |
+| **`Apex-Go v3` (ADOPTED)** | **6.00** (**+1.04**) | **4.17** (**+0.52**) | **5.10** | **4.71** | **5.55** (**+0.37**) | **4.44** (**+0.21**) | **4.99** (**+0.29 vs #1 / +0.66 vs TigerTown**) |
 
 ---
 

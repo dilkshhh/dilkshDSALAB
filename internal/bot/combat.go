@@ -381,7 +381,7 @@ func (b *Bot) engage(act *proto.Action, tg aimTarget, hasLOS, losRecent bool, hp
 			}
 			act.Fire[lasI] = hold
 			b.laserHold = hold
-		} else if allowFire && sl.cooldown <= 0.12 && inRange && (hasLOS || losRecent) {
+		} else if allowFire && sl.cooldown <= 0.12 && inRange && (hasLOS || losRecent) && (tg.mech || !b.P.LaserMechOnly) {
 			act.Fire[lasI] = true
 			b.laserHold = true
 		}
@@ -592,6 +592,13 @@ func (b *Bot) theirDPS(tr *Track, d float64) float64 {
 		// our lightning shorts their laser for as long as we keep arcing them
 		if li := b.has("lightning"); li >= 0 && b.energy > 20 && d < stat(b.slots[li].stats, "range", 45)-3 {
 			laser = false
+		}
+		// LaserCDTrack: in practice, enemy laser just fired -> on cooldown + charge for ~2.05 s (punish window!)
+		if laser && b.P.LaserCDTrack && !b.ffa && !tr.Charging && tr.LaserFiredT > 0 {
+			cdWin := stat(b.C.Weapons["laser"], "cooldown", 1.65) + stat(b.C.Weapons["laser"], "charge", 0.75) - 0.40
+			if b.t-tr.LaserFiredT < cdWin {
+				laser = false
+			}
 		}
 	}
 	dps := b.dpsOf(gun, laser, tr.Light, tr.Mortar, tr.Cubes, d, true, b.theirGunHit)

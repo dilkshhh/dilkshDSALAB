@@ -171,6 +171,10 @@ func (b *Bot) roamGoal() (float64, float64, bool) {
 			}
 			d := hyp(x-b.pos[0], y-b.pos[1])
 			s := d - math.Min(age, 300)*0.15
+			if !b.ffa && b.P.PracticeRim > 0 && z.NextRadius >= 180 {
+				dn := hyp(x-z.NextCenter[0], y-z.NextCenter[1])
+				s += math.Abs(dn-z.NextRadius*0.88) * b.P.PracticeRim
+			}
 			if s < bs {
 				best, bs = k, s
 			}

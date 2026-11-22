@@ -1,22 +1,22 @@
 # ARCHITECTURE — how the bot works
 
-> Living document. Last updated **2026-11-21 21:58 UTC**.
+> Living document. Last updated **2026-11-22 06:45 UTC**.
 > If you change structure, change this file in the same commit.
 
 Static compiled **Go** binary (`FROM golang:1.26.1-bookworm → FROM scratch`, `4.03 MB`), standard library only, zero external dependencies, one process, one core, 50 ms per decision
-(**1-CPU Docker sandbox: 300/300 PASS, p50 3.2 ms, p90 5.5 ms, p99 9.9 ms, max 11.3 ms**).
+(**1-CPU Docker sandbox: 299/300 PASS, p50 1.1 ms, p90 2.5 ms, p99 6.5 ms; native: 300/300 PASS, p50 0.2 ms, max 3.8 ms**).
 
-## Active Engine: `Apex-Go v2` (`cmd/mechbot/` + `internal/{proto,world,bot}/`)
+## Active Engine: `Apex-Go v3` (`cmd/mechbot/` + `internal/{proto,world,bot}/`)
 
 ```
 stdin ─► goroutine line drainer (queue-skip) ─► safeAct(recover) ─► Bot.Act(obs) ─► AppendJSON ─► stdout
                                                                          │
-                                                                         ├─► observe()       memory tracks, exact prism LOS, BeamFFA (segPointDist2D > 22), adaptive lead history
+                                                                         ├─► observe()       memory tracks, exact prism LOS, BeamFFA (segPointDist2D > 22), LaserCDTrack (obs.Beams), adaptive lead history
                                                                          ├─► belief()        Open (24s Brawl) → Squad Hunt → Late Cautious (t≥265s / r≤72m) | Instant FFA Brawl | Duel
-                                                                         ├─► assess()        range-aware 6-band fightPlan (r+6 lightning fix) + live exchange model
-                                                                         ├─► steer()         34-candidate forward-simulated trajectory MPC (gun bullets, 3D mortar arcs, charging lasers, all-carrier anti-lightning forcefield)
-                                                                         ├─► engage()        cooldown-aware tick latency, dynamic gun speed in lead, online adaptive lead, rear_mult & cookoff lethal/priority, odd-tick laser release
-                                                                         └─► econ            config-driven upgrade pick, NoMortar FFA cookoff guard, roof/overland jump-jet nav, shrinking FinalHold
+                                                                         ├─► assess()        range-aware 6-band fightPlan (r+6 lightning fix + practice 2s laser CD punish window) + live exchange model
+                                                                         ├─► steer()         34-candidate forward-simulated trajectory MPC (gun bullets, 3D mortar arcs, charging lasers, all-carrier anti-lightning forcefield, RearAvoidW=35 2v1 rear-arc shield)
+                                                                         ├─► engage()        cooldown-aware tick latency, dynamic gun speed in lead, online adaptive lead, rear_mult & cookoff lethal/priority, odd-tick laser release, CoverReload behind cover
+                                                                         └─► econ            config-driven upgrade pick, NoMortar FFA cookoff guard, PracticeRim (88% outer rim while r≥180), RetreatPest drone swatting, roof/overland jump-jet nav, shrinking FinalHold
 ```
 
 | Path | Responsibility | Key entry points |

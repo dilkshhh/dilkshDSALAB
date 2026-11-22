@@ -157,6 +157,18 @@ func (b *Bot) chooseHide(zi zoneInfo) int {
 			if z.NextRadius > 60 && dn < z.NextRadius*0.35 {
 				s += 10
 			}
+			// EdgeBias / EdgeBand (FFA rim play): stay near the outer rim of the next circle
+			if b.ffa && b.P.EdgeBias > 0 && z.NextRadius > 60 {
+				s -= b.P.EdgeBias * 30 * dn / z.NextRadius
+				if b.P.EdgeBand > 0 && dn < z.NextRadius*b.P.EdgeBand {
+					s += 60
+				}
+			}
+			// PracticeRim: stay near outer 85-90% of circle while radius >= 180 (house squad roams the middle)
+			if !b.ffa && b.P.PracticeRim > 0 && z.NextRadius >= 180 {
+				wantR := z.NextRadius * 0.88
+				s += math.Abs(dn-wantR) * b.P.PracticeRim
+			}
 			// prefer being close to a wall (something to duck behind)
 			s += float64(b.Nav.Clear[k]) * 0.8
 			if k == b.holdCell {

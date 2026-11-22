@@ -67,7 +67,11 @@ func (b *Bot) think(act *proto.Action) {
 			s *= 1.6
 		}
 		if th.tr.MaxHP > 0 {
-			s *= 1 + (1 - th.tr.HP/th.tr.MaxHP)
+			kf := 1.0
+			if b.P.KillFocus > 0 {
+				kf = b.P.KillFocus
+			}
+			s *= 1 + kf*(1-th.tr.HP/th.tr.MaxHP)
 		}
 		if th.tr.ID == b.targetID {
 			s *= 1.2
@@ -453,6 +457,36 @@ func (b *Bot) think(act *proto.Action) {
 			}
 		}
 	}
+	// Apex-Go v3: RearAvoidW (SandeepMadhavarapu 4f3c7d9) — keep extra attackers out of our 1.5x rear arc
+	if b.P.RearAvoidW > 0 && tgt != nil && tgt.tr.LOS && nEngaged >= 2 {
+		halfFront := b.mech("front_arc_deg", 180) * 0.5 * math.Pi / 180
+		tx, ty := tgt.tr.Pos[0], tgt.tr.Pos[1]
+		var extras [][2]float64
+		for i := range ths {
+			th := &ths[i]
+			if th.engaged && th.tr.ID != tgt.tr.ID && th.tr.LOS && th.d < 210 {
+				extras = append(extras, [2]float64{th.tr.Pos[0], th.tr.Pos[1]})
+			}
+		}
+		if len(extras) > 0 {
+			w := b.P.RearAvoidW
+			prev := rq.posCost
+			rq.posCost = func(x, y float64) float64 {
+				c := 0.0
+				if prev != nil {
+					c = prev(x, y)
+				}
+				face := math.Atan2(ty-y, tx-x)
+				for _, e := range extras {
+					bear := math.Atan2(e[1]-y, e[0]-x)
+					if math.Abs(angDiff(bear, face)) > halfFront {
+						c += w
+					}
+				}
+				return c
+			}
+		}
+	}
 	heading, haveHeading := 0.0, false
 	var shootItem *aimTarget
 	shootHP := 0.0
@@ -633,6 +667,13 @@ func (b *Bot) think(act *proto.Action) {
 
 	case b.retreating:
 		b.mode = "retreat"
+		if b.P.RetreatPest && nEngaged == 0 {
+			if tr := b.pest(); tr != nil && tr.LOS && dist2(b.pos, tr.Pos) < 120 {
+				at := b.targetOf(tr)
+				shootItem = &at
+				shootHP = tr.HP
+			}
+		}
 		// a leg deeper into cover, once begun, is walked to its end unless it stops being cover
 		deeper := (b.P.RunOnRange > 0 || b.P.CoverMargin > 0) && st.avoid // (free-for-all stances only)
 		deep := deeper && b.deepCell >= 0 && b.t-b.deepT < 8
@@ -700,7 +741,15 @@ func (b *Bot) think(act *proto.Action) {
 
 	case wantFight:
 		b.mode = "fight" + fightWhy
-		if w := b.weaponRun(32); w != nil && !onRoof {
+		if dr := b.dropRun(st, hpFrac); dr != nil && !onRoof {
+			// practice stance supply drop break-off (full HP + full energy + 3 cubes)
+			b.mode = "fight+drop"
+			d := setGoal(dr.Pos[0], dr.Pos[1], 2.4, b.energy > 40 && dr.LandsIn < 6)
+			if d < 3 {
+				rq.wantW = 0
+				rq.hold = true
+			}
+		} else if w := b.weaponRun(32); w != nil && !onRoof {
 			// a better weapon lying right here beats another second of shooting
 			b.mode = "fight+arm"
 			dx, dy, _, _ := b.navDir(w.Pos[0], w.Pos[1])
@@ -894,6 +943,15 @@ func (b *Bot) think(act *proto.Action) {
 					rq.wantW = 0
 					rq.hold = true
 				}
+			} else if sx, sy, sid, ok := b.seekTarget(st, hpFrac); ok && !roofFirst {
+				b.mode = "seek"
+				setGoal(sx, sy, 1.8, false)
+				if !goalOK && sid >= 0 {
+					if b.seekBan == nil {
+						b.seekBan = map[int]float64{}
+					}
+					b.seekBan[sid] = b.t + 30
+				}
 			} else if rx, ry, ok := b.roamTarget(st, hpFrac); ok && !roofFirst && (!roofWanted || (!b.armed() && quiet)) {
 				// nothing known to pick up: go and look for crates and weapons
 				b.mode = "roam"
@@ -1021,6 +1079,20 @@ func (b *Bot) think(act *proto.Action) {
 					act.Fire[li] = true
 					break
 				}
+			}
+		}
+	}
+	// Apex-Go v3: CoverReload (MarwanMoh11 v5.15) — top off gun mag behind cover while no enemy has LOS >= 1.1s
+	if b.P.CoverReload && !act.Reload && shootItem == nil {
+		if gi := b.has("gun"); gi >= 0 && !act.Fire[gi] {
+			sl := &b.slots[gi]
+			mag := stat(sl.stats, "mag", 12)
+			frac := 0.60
+			if b.ffa {
+				frac = 0.25
+			}
+			if sl.reload <= 0 && sl.ammo <= mag*frac && sl.ammo < mag && b.t-b.lastEnemyLOST >= 1.1 {
+				act.Reload = true
 			}
 		}
 	}
@@ -1334,4 +1406,83 @@ func (b *Bot) fightMove(rq *steerReq, th *threat) {
 			rq.boost = true
 		}
 	}
+}
+
+// dropRun (DropRun > 0, practice squad stance): break off for a supply drop in reach for full HP + 3 cubes.
+func (b *Bot) dropRun(st stance, hpFrac float64) *proto.DropObs {
+	if b.P.DropRun <= 0 || st.name != "squad" {
+		return nil
+	}
+	if hpFrac > 0.85 && b.o.Self.Cubes >= 10 {
+		return nil
+	}
+	var best *proto.DropObs
+	bd := 1e18
+	for i := range b.o.Drops {
+		dr := &b.o.Drops[i]
+		if until, banned := b.banUntil[dr.ID]; banned && b.t < until {
+			continue
+		}
+		d := dist2(b.pos, dr.Pos)
+		if d > b.P.DropRun {
+			continue
+		}
+		if dr.LandsIn > d/b.walk*1.25+4 {
+			continue
+		}
+		if !b.inFutureZone(dr.Pos[0], dr.Pos[1], d/b.walk+6, 4) {
+			continue
+		}
+		if d < bd {
+			best, bd = dr, d
+		}
+	}
+	return best
+}
+
+// seekTarget (Seek > 0, practice squad stance): actively pursue the nearest favourable mech when healthy.
+func (b *Bot) seekTarget(st stance, hpFrac float64) (x, y float64, id int, ok bool) {
+	seekHP := b.P.SeekHP
+	if seekHP <= 0 {
+		seekHP = 0.65
+	}
+	seekR := b.P.SeekRange
+	if seekR <= 0 {
+		seekR = 320
+	}
+	if b.P.Seek <= 0 || st.name != "squad" || !st.hunt || hpFrac < seekHP {
+		return 0, 0, -1, false
+	}
+	if b.seekBan == nil {
+		b.seekBan = map[int]float64{}
+	}
+	var best *Track
+	bd := 1e18
+	for _, tr := range b.tracks {
+		if tr.NPC || b.t-tr.LastSeen > b.P.Seek {
+			continue
+		}
+		if until, ok := b.seekBan[tr.ID]; ok && b.t < until {
+			continue
+		}
+		d := dist2(b.pos, tr.Pos)
+		if d > seekR || !b.inFutureZone(tr.Pos[0], tr.Pos[1], 8, 6) {
+			continue
+		}
+		if d < 22 && !tr.Listed {
+			b.seekBan[tr.ID] = b.t + 20
+			continue
+		}
+		if adv, _, _ := b.fightPlan(tr, d); adv < st.engageRatio {
+			continue
+		}
+		if d < bd || (d == bd && best != nil && tr.ID < best.ID) {
+			best, bd = tr, d
+		}
+	}
+	if best != nil {
+		return best.Pos[0], best.Pos[1], best.ID, true
+	}
+	x, y, ok = b.roamGoal()
+	return x, y, -1, ok
 }

@@ -122,6 +122,14 @@ func (b *Bot) chooseRoof() (int, world.RoofAccess, bool) {
 			z := &b.o.Zone
 			s += hyp(ix-z.NextCenter[0], iy-z.NextCenter[1]) * b.P.RoofCenterW
 		}
+		if b.ffa && b.P.EdgeBias > 0 && b.o.Zone.NextRadius > 60 {
+			z := &b.o.Zone
+			dn := hyp(ix-z.NextCenter[0], iy-z.NextCenter[1])
+			s -= b.P.EdgeBias * 25 * dn / z.NextRadius
+			if b.P.EdgeBand > 0 && dn < z.NextRadius*b.P.EdgeBand {
+				s += 50
+			}
+		}
 		for _, tr := range b.tracks {
 			if tr.NPC || b.t-tr.LastSeen > 20 {
 				continue
