@@ -1,182 +1,101 @@
-# Mech Royale bot (`mechfight/1`)
+# Team 4141: Mech Royale bot
 
-Entry for the Builders Buildathon 2026, **Mech Royale** track. Python 3.13,
-standard library only. Placement is the metric, so the policy is survival-first:
-stay inside the circle, avoid being found, break line of sight, and only take
-free economy or favourable fights.
+Team 4141's entry for the Builders Buildathon 2026 Mech Royale track, by Dilksh and Sparsh.
 
-> **Working on this repo?** Start at [`AGENTS.md`](AGENTS.md), then
-> [`docs/STATE.md`](docs/STATE.md). The `docs/` directory is the living record of
-> what we believe, what we measured, and what we already ruled out — it is the
-> source of truth, and it supersedes anything below that contradicts it.
-> This README is the public-facing summary; `docs/` is the engineering one.
+**This entry reuses other people's code.** Most of the bot was written by the authors credited below.
 
-## Layout
+- **This commit:** the final entry's bot. Every file except this README is identical to
+  `b833cd0adab280a62b18a4e6b1402c59c647db1d`.
+- **The `main` branch:** an older snapshot of the same upstream project. It is not the final entry.
 
-| Path | What it is |
-| --- | --- |
-| `bot.py` | Entrypoint: thin adapter around `mechfight.run`. |
-| `brain.py` | Decision core: mode selection, zone rotation, threat handling. |
-| `intel.py` | Belief records with source/confidence tags; server-tracked positions, uncertain sound/beam/event sectors, explicit unknowns. |
-| `world.py` | 1 m arena model: solid column tops, overhangs, 9-point body collision, LOS. |
-| `nav.py` | Navigation grid + bounded A* + local steering + collision-safe heading filter. |
-| `zone.py` | Circle interpolation and safe-point selection. |
-| `combat.py` | Lead aiming, torso slew, projectile/laser evasion, facing. |
-| `econ.py` | Loot, cubes, supply drops, upgrade valuation, optional early roam. |
-| `cover.py` | Local line-of-sight breaking spot search (optional policy layer). |
-| `params.py` | Tunable policy parameters; `BOT_PARAMS` env JSON overrides them for local A/B. |
-| `mechfight.py` | Official protocol wrapper from the organiser's starter kit. |
-| `mechfight.schema.json`, `check/`, `arena/` | Official kit files, used only for local conformance testing; excluded from the image. |
-| `tools/example_bot.py` | Official starter bot, kept for reference; excluded from the image. |
-| `AUDIT.md` | Protocol fact/uncertainty ledger, architecture audit, observation/action maps and baseline. |
+## Credits
 
-`sim/` and `tests/` are **empty local placeholders** and are not in the public tree.
-The A/B simulator used for development is external and uncommitted (see Attribution).
+### 1. ahmad-ovh/Buildathon (team Ahmad Suliman): the bot
 
-## Attribution
+- Source: https://github.com/ahmad-ovh/Buildathon
+- License: MIT, Copyright (c) 2026 ahmad-ovh
+- Used in the final entry: the whole Apex-Go v3 bot, from commit `56e0f76`, with the license notices added in
+  `54919f3`. That covers `cmd/mechbot/`, `internal/`, the `Dockerfile`, the older Python bot, and the project
+  documentation and tooling.
+- Their contribution includes the changes they made to the engine credited in section 2, such as lightning
+  avoidance, laser-cooldown tracking, rear-arc avoidance, reloading behind cover, kill-aware laser release,
+  and the practice and free-for-all tuning.
+- Used on `main`: their commit `f29e4d3`, nearly unchanged (see section 4).
 
-- `mechfight.py`, `mechfight.schema.json`, `check/check.py`,
-  `check/stream.jsonl.gz`, `arena/v2/world.json` and `arena/v2/terrain.i16` are
-  copied unchanged from the official **mechfight bot kit** published on the
-  track page (https://www.joinbuilders.org/buildathon/tracks/builders).
-- Local relative A/B testing uses a separate, uncommitted headless simulator
-  derived from the public MIT-licensed repository
-  `anthonyteti/buildathon-mech-royale`, driven through its protocol-speaking
-  external-bot hook (dev harness only; not in the image).
-- **Code we brought — the Go engine (`cmd/mechbot`, `internal/`) is derived from
-  the public MIT-licensed repository
-  [`andrew-zhouu/builders-mech-royale-2026`](https://github.com/andrew-zhouu/builders-mech-royale-2026)
-  (team TigerTown27).** Large parts are used unchanged (`internal/world/*`,
-  `internal/proto/proto.go`, `internal/bot/{peek,util,hidemap,lead,move,variants}.go`,
-  `internal/bot/hidemap.gz`); the rest of `internal/bot` and `cmd/mechbot` are
-  modified versions with our own additions (anti-lightning, smart-fire lethal
-  maths, laser-cooldown tracking, rear-arc avoidance, cover reload, FFA/practice
-  gating and tuning). Its copyright and permission notice are reproduced in
-  `THIRD_PARTY_NOTICES.md`.
-- Released under the MIT License (see `LICENSE`).
+### 2. andrew-zhouu/builders-mech-royale-2026 (team TigerTown27): the engine underneath
 
-## Build and verify
+- Source: https://github.com/andrew-zhouu/builders-mech-royale-2026
+- License: MIT, Copyright (c) 2026 the authors of that repository
+- Ahmad Suliman's bot is built on this engine, so it is part of this entry.
+- Identical in the final entry to their v0.118 (`663bbc4`), apart from import paths:
+  - `internal/world/`: `world.go`, `nav.go`, `exposure.go`, `roofs.go`, `surface.go`, `trees.go`
+    (map, line of sight, path search, roofs)
+  - `internal/proto/proto.go` (protocol)
+  - `internal/bot/`: `move.go`, `peek.go`, `util.go`, `hidemap.go`, `hidemap.gz`
+    (movement, corner peeking, helpers, hiding map)
+- Derived from their code, with differences from v0.118:
+  - `internal/bot/`: `bot.go`, `policy.go`, `combat.go`, `strategy.go`, `cover.go`, `hide.go`, `lead.go`,
+    `plan.go`, `roof.go`, `variants.go` (decisions, combat, aiming, cover, strategy)
+  - `cmd/mechbot/main.go` (input and output loop)
+
+### 3. h-ardy/buildathon-mech-royale (team who dey): three settings
+
+- Source: https://github.com/h-ardy/buildathon-mech-royale (no longer publicly reachable as of 22 Nov 2026)
+- Used in the final entry, in `DefaultParams` in `internal/bot/bot.go`:
+  - `RearAvoidW: 50` (was 35)
+  - `CubeSmart: true`
+  - `KillFocus: 1.5`
+- With these settings the final entry's bot code is functionally the same as who dey's, which is also built on
+  Ahmad Suliman's bot.
+
+### 4. What team 4141 changed
+
+- Final entry: combined sections 1 and 3, removed the upstream chat transcripts, and built and tested the result.
+- `main`: renamed the bot to PROFESSOR, added code comments and left out some upstream documents and transcripts.
+
+### 5. Official bot kit (Builders)
+
+- Source: https://www.joinbuilders.org/buildathon/tracks/builders
+- Files: `mechfight.py`, `mechfight.schema.json`, `check/`, `arena/v2/` and `tools/example_bot.py`
+
+### 6. Earlier versions in this repository's history (not in the final entry)
+
+- **giddygiddyboy** (https://github.com/justnau/giddygiddyboy-mech-royale), MIT, Copyright (c) 2026 giddygiddyboy:
+  the earlier Go bot (`pilot.go`, `strategy.go`, `terrain.go`), including commit `c512d8d` and the `exp-v5` to
+  `exp-v11` branches.
+- **aqilc**, MIT, Copyright (c) 2026 aqilc: the "farx" bot on branch `exp-aq1`.
+
+## Build
 
 ```sh
 docker build --platform linux/amd64 -t mech-bot .
-python3 check/check.py -- python3 -u bot.py
-python3 check/check.py --map-dir /arena -- docker run --rm -i --network none \
-  --cpus 1 --memory 512m --read-only --tmpfs /tmp:rw,size=64m \
-  --user 65534:65534 -v "$PWD/arena:/arena:ro" mech-bot
 ```
 
-`check.py` only proves protocol compliance and timing; it is not a game.
+## License
 
-## Local experiment log (relative scores, not official points)
+MIT. The copyright notices of the reused code and the permission notice that applies to each:
 
-Paired practice runs, same seeds, external protocol-speaking bots. Only the
-paired difference is meaningful; absolute values are not comparable with the
-official practice score. **No official practice submission has been made yet.**
+```
+Copyright (c) 2026 ahmad-ovh
+Copyright (c) 2026 the authors of andrew-zhouu/builders-mech-royale-2026
+Copyright (c) 2026 giddygiddyboy
+Copyright (c) 2026 aqilc
 
-| Experiment | Paired delta | Decision |
-| --- | --- | --- |
-| Exact upgrade effects, first mobility-heavy weights | −0.33 ± 0.17 (24 paired, harsh) / −0.08 ± 0.25 (mild) | rejected; over-weighted mobility/aim |
-| Exact upgrade effects, survival-weighted retune | +0.04 ± 0.09 (24 paired, harsh) / 0.00 ± 0.12 (mild) | neutral; retained for protocol correctness |
-| Protocol-first belief layer (D1/D2: server-tracked positions, uncertain sound sectors) | +0.04 ± 0.07 (24 paired, harsh) | neutral; retained for protocol correctness and as arbiter input |
-| Single torso-aim arbiter (D3) | +0.54 ± 0.28 (24 paired, harsh) / +0.71 ± 0.59 (24 paired, mild) | retained; positive but variance is high |
-| Combined D1/D2/D3 | +0.63 ± 0.25 (24 paired, harsh) / +1.50 ± 0.40 (24 paired, mild) | retained |
-| 1 m engine-accurate collision + composed-heading validation | fixed a hard wedging bug (bot was farmed to death by one drone at t≈70 s) | adopted |
-| Aggression (`aggression` 0.95 / 0.7) | 0.00 / −0.31 | rejected |
-| LOS-breaking cover | 0.00 ± 0.07 | optional, off by default |
-| Early roam / weapon + cube farming | −0.50 ± 0.17 | rejected (roam_until = 0) |
-| Squad kiting (boost away from incoming-fire bearings, 5 s hold) | +0.55 ± 0.27 | adopted |
-| Kite hold 8 s vs 5 s | 0.00 ± 0.09 | 6 s default |
-| Kite hold 14 s vs 8 s | −0.21 ± 0.13 | rejected |
-| Full-speed (loud) movement vs quiet | −0.67 ± 0.26 | quiet movement kept |
-| Live-config body geometry (radius/height/step-up/slope/canopy, D5) | +0.42 ± 0.51 (24 paired, harsh) / +0.13 ± 0.18 (24 paired, mild) | **inconclusive**; retained only as protocol correctness (no hardcoded rule numbers), not claimed as a gain |
-| Movement discipline: route clearance, goal hold, reciprocal fire, kite range gate, no static camping | score −0.22 ± 0.44, survival −3.5 ± 13.2 s, damage dealt +335 ± 239, kills +0.25 ± 0.21 (32 paired) | neutral on survival, positive on offence; kept because each item fixes a demonstrated defect (walking into the squad, standing still, dying with a full magazine) |
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-### Calibration caveat on the local metric
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-In the local simulator the 15 house bots survive **87 %** of matches, so the best
-reachable score is about 2.0 and the score signal is nearly flat. Measured score
-deltas therefore under-report real differences, and **survival time is the
-primary local signal**. Absolute local scores are not comparable with the
-official practice score, which reaches 5.96 on the live leaderboard.
-
-### Measurement protocol (learned the hard way)
-
-The seed **range** behaves like a random effect: the same comparison can read
-+0.67 on one range and −0.10 on another. Treating individual seeds as
-independent understates the error badly, so:
-
-- an effect needs **≥48 pairs spanning at least three seed ranges**;
-- report the per-range deltas, not just the pooled one;
-- anything under ~0.5 score is **not resolvable** with feasible sample sizes and
-  must be called inconclusive, not a win.
-
-A concrete example of why: focus fire measured `+0.38 ± 0.13` on 32 pairs from
-one range (11 wins / 2 losses, apparently decisive) and `−0.04 ± 0.08` on 48
-pairs from another. The first result was a false positive.
-
-### Experiments measured and rejected (defaults unchanged)
-
-| Change | Paired result | Decision |
-| --- | --- | --- |
-| Focus fire | +0.38 ± 0.13 (32 pairs, range 4000) then −0.04 ± 0.08 (48 pairs, range 8000) | kept as neutral/mechanically sound; the gain did **not** replicate |
-| Laser pre-charge without the fire gate | −0.16 ± 0.13 | off |
-| Indirect mortar targets (accept LOS-blocked) | −0.28 ± 0.11 | off |
-| Economy: early roam + crates + drops | −0.78 ± 0.36 | off |
-| High aim point (0.75 body height) | −0.47 ± 0.23 | off |
-| Open ground (`cover_bias` 0) | −0.22 ± 0.19 | off |
-| Aggression 1.0 / `engage_range` 240 | +0.12 ± 0.12 | inconclusive, unchanged |
-| Mortar-preferring loadout | −0.02 ± 0.09 | inconclusive, unchanged |
-| Zone-edge goal (`goal_offset` 0.78) | +0.19 / +0.67 / −0.10 across ranges 8000/11000/13000 | inconclusive (+0.25 ± 0.23 pooled); unchanged |
-
-### Decision-time budget
-Over 387 sampled decisions the bot had a shootable target **21 %** of the time,
-was alone **35 %**, and had enemies visible but terrain-blocked **44 %**. The
-fire gate was never the binding constraint: the arbiter passed literal
-`fire=True` and used the gate only for candidate utility, which is why every
-gate experiment measured flat. Damage is limited by target availability, not
-permission to shoot.
-
-
-
-### Parameter sweep (14 dimensions, 14 random configs)
-
-Harness: `sweep.py` (dev-only, uncommitted). Every config is scored on the same
-three fixed ranges (8000/11000/13000, 16 seeds each) against a **cached
-per-seed baseline**, so a candidate costs one arm (~82 s). Results are reported
-as per-range deltas, and a holdout of untouched ranges (14000/15000/16000)
-confirms anything that survives.
-
-Baselines: train **1.96 / 71 s / 1.27 kills**; holdout **1.65 / 66.5 s / 1.17**.
-
-Outcome: **no config was reliably better.** Per-range deltas swing by up to 1.2
-score *within a single config* (e.g. `+0.31/−1.00/+0.12`), so pooled means are
-noise. Only one config was positive on all three training ranges, and it had
-negative kills — self-contradictory.
-
-The best candidate by mechanism (kills, the thing that actually improves place)
-was aggression 0.8 / cover_bias 0.25 / standoff 65 / hunt_hp 0.30 / quiet off:
-
-| Set | Pooled score | Kills | Per-range |
-| --- | --- | --- | --- |
-| train | +0.33 | +0.38 | +0.69 / −0.25 / +0.56 |
-| holdout | +0.15 | +0.06 | +0.38 / +0.06 / +0.00 |
-
-5 of 6 ranges non-negative, pooled ≈ +0.24 — real but modest, and **not clearly
-better than the hunter-v2 build already submitted**. Conclusion: this parameter
-space is close to exhausted; remaining gains are structural, not tunable.
-
-## Documentation system
-
-| Path | Contents |
-| --- | --- |
-| `AGENTS.md` | Entry point: reading order, non-negotiable rules, 60-second summary |
-| `docs/README.md` | The map and the conventions |
-| `docs/STATE.md` | Where the project stands, next actions, open questions |
-| `docs/FINDINGS.md` | What is true about the game, with evidence tags |
-| `docs/ARCHITECTURE.md` | File-by-file design, decision loop, invariants, defects |
-| `docs/EXPERIMENTS.md` | Every experiment with numbers, including rejections |
-| `docs/OPERATIONS.md` | Build, test, local harness, measurement protocol |
-| `docs/DECISIONS.md` | Why it is shaped this way, including reversals |
-| `docs/EXTERNAL_REVIEWS.md` | Two outside models reviewed this; what survived testing |
-| `HANDOFF.md` | Frozen self-contained snapshot (full protocol + config verbatim) |
-| `AUDIT.md` | Original protocol ledger: uncertainty classes A–E, defects D1–D14 |
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
