@@ -2561,6 +2561,11 @@ func (b *Agent) duckMove(o *Obs, vis []*Contact, laser *Weapon) (float64, float6
 		}
 		b.coverFailAt = -99 // the search that just failed was for a different set of eyes
 		mx, my, ok = b.takeCoverWithin(o, []*Contact{key}, steps, margin)
+		if debug {
+			fmt.Fprintf(os.Stderr, "duckMove t=%.1f all-foes failed (%d), fallback on %d: ok=%v\n", b.now, len(foes), key.id, ok)
+		}
+	} else if debug {
+		fmt.Fprintf(os.Stderr, "duckMove t=%.1f foes=%d steps=%d margin=%.0f ok=%v move=%.2f,%.2f\n", b.now, len(foes), steps, margin, ok, mx, my)
 	}
 	if !ok {
 		b.duck, b.duckFailAt = false, b.now
