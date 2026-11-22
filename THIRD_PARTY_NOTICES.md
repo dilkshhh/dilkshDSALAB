@@ -32,3 +32,8 @@ SOFTWARE.
 ## anthonyteti/buildathon-mech-royale
 
 Used only as an uncommitted local test simulator (MIT). Not part of this repository or the image.
+
+## h-ardy/buildathon-mech-royale (who dey)
+
+Source: https://github.com/h-ardy/buildathon-mech-royale (MIT)
+Used in: `internal/bot/bot.go` DefaultParams — RearAvoidW 50, CubeSmart on, KillFocus 1.5.
