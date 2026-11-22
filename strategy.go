@@ -197,10 +197,10 @@ type Tuning struct {
 // "hunt", "seek", "credit" or "all". hunt/seek/farmCubes only act in the practice stance, so
 // free-for-all play is unchanged by them; credit also applies in a free-for-all (a death we probably
 // caused no longer counts towards spotting one).
-const buildVariant = "base"
+const buildVariant = "credit"
 
 // rngSalt changes only the dice: builds that differ in it alone play the same game with other luck.
-var rngSalt uint64 = 3
+var rngSalt uint64 = 2
 
 // variant applies buildVariant on top of the practice parameter set.
 func variant(p Tuning) Tuning {
