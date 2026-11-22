@@ -212,6 +212,7 @@ type Event struct {
 	Bearing *float64 `json:"bearing"`
 	Weapon  string   `json:"weapon"`
 	Target  *int     `json:"target"`
+	Amount  float64  `json:"amount"`
 }
 
 type Zone struct {

@@ -152,6 +152,9 @@ type lootPick struct {
 	pos  []float64
 }
 
+// dmgHit is one damage event against us.
+type dmgHit struct{ t, amt float64 }
+
 // ---------------------------------------------------------------------------
 // Tunable behaviour parameters
 
@@ -197,7 +200,7 @@ type Tuning struct {
 // "hunt", "seek", "credit" or "all". hunt/seek/farmCubes only act in the practice stance, so
 // free-for-all play is unchanged by them; credit also applies in a free-for-all (a death we probably
 // caused no longer counts towards spotting one).
-const buildVariant = "base"
+const buildVariant = "credit"
 
 // rngSalt changes only the dice: builds that differ in it alone play the same game with other luck.
 var rngSalt uint64 = 0
@@ -258,6 +261,14 @@ type Agent struct {
 	npcHurt     float64
 	npcBearing  float64
 	seekBan     map[int]float64 // mechs we went looking for and did not find, until when
+
+	// free-for-all fighting (see ffaDuck)
+	hits       []dmgHit // damage taken from mechs and drones in the last few seconds
+	hurtBy     int      // who hit us last (-1: unknown)
+	laserHitAt float64  // when a laser last hit us
+	duck       bool     // hurt under heavy fire: holding cover to heal
+	duckAt     float64  // when the current duck began
+	duckFailAt float64  // when a duck last found no cover close enough
 
 	tracks  *omap[*Contact]
 	npcs    *omap[*Contact]
@@ -323,6 +334,7 @@ func NewAgent(h *Hello) *Agent {
 		tracks: newOmap[*Contact](), npcs: newOmap[*Contact](), crates: newOmap[*thing](), cubes: newOmap[*thing](), pickups: newOmap[*thing](),
 		bad: map[int]float64{}, seekBan: map[int]float64{}, routeAt: -99, strafe: 1, coverAt: -99, coverFailAt: -99, lastHurt: -100, lootID: -1,
 		homeAt: -99, stuckSince: -1, unstuckDir: [2]float64{1, 0}, lastThreat: -100, escAt: -99, stickID: -1, stickAt: -99, loseAt: -99,
+		hurtBy: -1, laserHitAt: -100, duckAt: -99, duckFailAt: -99,
 		mode: "idle"}
 	var w *World
 	var err error
@@ -478,6 +490,11 @@ func (b *Agent) perceive(o *Obs) {
 				t.hitMe = now
 			}
 			b.lastHurt = now
+			b.hurtBy = *e.By
+			b.hits = append(b.hits, dmgHit{now, e.Amount})
+			if e.Weapon == "laser" {
+				b.laserHitAt = now
+			}
 			if e.Bearing != nil {
 				b.hurtBearing = *e.Bearing
 			}
@@ -711,6 +728,9 @@ func (b *Agent) prefRange(me *Self, t *Contact) float64 {
 	if t.kind == "npc" {
 		return 58
 	}
+	if b.ffa() {
+		return b.ffaRange(me, t, w)
+	}
 	if _, ok := w["lightning"]; !ok {
 		if t.has("lightning") {
 			r = math.Max(r, 64)
@@ -720,6 +740,33 @@ func (b *Agent) prefRange(me *Self, t *Contact) float64 {
 		}
 	}
 	return r
+}
+
+// ffaRange is the distance to hold from mech t in a free-for-all, chosen by what each side carries. A
+// laser hits as hard at 150 m as at 50 m while a gun loses most of its hits with range, so the side with
+// the laser keeps its distance and the side without closes in; a mortar cannot hit what is inside its
+// arc. A beaten mech that is running away is chased down instead.
+func (b *Agent) ffaRange(me *Self, t *Contact, w map[string]*Weapon) float64 {
+	_, haveLaser := w["laser"]
+	_, haveLight := w["lightning"]
+	if t.hp < 0.3*t.maxHP && me.HP > 0.5*me.MaxHP && t.closing < -1 {
+		return 30
+	}
+	switch {
+	case haveLaser && !t.has("laser"):
+		return 150 // out of reach of its gun, well inside ours
+	case haveLaser:
+		return 95 // laser against laser
+	case t.has("laser"):
+		return 45 // a gun against a laser: close in, where the gun lands
+	case t.has("mortar"):
+		return 32 // inside the mortar's arc
+	case haveLight && me.Energy > 12:
+		return b.P.lightRange
+	case t.has("lightning"):
+		return 70 // keep out of its arc
+	}
+	return b.P.gunRange
 }
 
 // combatStep picks a move direction while engaging target t.
@@ -836,6 +883,13 @@ func (b *Agent) combatStep(o *Obs, t *Contact, aggr float64, foes []*Contact) (f
 // takeCover looks for a nearby spot hidden from the closest enemies and moves there.
 // It returns ok=false when no cover is available.
 func (b *Agent) takeCover(o *Obs, foes []*Contact) (float64, float64, bool) {
+	return b.takeCoverWithin(o, foes, 50, 0)
+}
+
+// takeCoverWithin is takeCover with the search limited to maxSteps grid steps (2 units each). With
+// margin > 0 a spot must also stay hidden from each enemy stepping that far to either side: the
+// nearest hidden spot sits on the very edge of the shadow and is seen again after a step or two.
+func (b *Agent) takeCoverWithin(o *Obs, foes []*Contact, maxSteps int, margin float64) (float64, float64, bool) {
 	me := &o.Self
 	x, y := me.Pos[0], me.Pos[1]
 	g := b.grid
@@ -868,6 +922,19 @@ func (b *Agent) takeCover(o *Obs, foes []*Contact) (float64, float64, bool) {
 			if b.clear(e, [3]float64{px, py, z + h}) || b.clear(e, [3]float64{px, py, z + 0.5*h}) {
 				return false
 			}
+			if margin > 0 {
+				dx, dy := px-e[0], py-e[1]
+				l := hyp(dx, dy)
+				if l < 1 {
+					return false
+				}
+				sx, sy := -dy/l*margin, dx/l*margin
+				for _, s := range [2]float64{1, -1} {
+					if b.clear([3]float64{e[0] + s*sx, e[1] + s*sy, e[2]}, [3]float64{px, py, z + 0.5*h}) {
+						return false
+					}
+				}
+			}
 		}
 		return true
 	}
@@ -897,7 +964,7 @@ func (b *Agent) takeCover(o *Obs, foes []*Contact) (float64, float64, bool) {
 	for i := 0; i < len(q) && evals < 350; i++ {
 		c := q[i]
 		d := dist[c]
-		if d > 50 || (best >= 0 && float64(2*d) > bestS+30) {
+		if d > maxSteps || (best >= 0 && float64(2*d) > bestS+30) {
 			break
 		}
 		cx, cy := c%g.nx, c/g.nx
@@ -963,6 +1030,9 @@ func (b *Agent) wantPickup(me *Self, kind string) bool {
 	}
 	if kind == "mortar" && b.P.noMortar {
 		return false
+	}
+	if kind == "lightning" && b.ffa() {
+		return false // in a free-for-all its short arc drags us into brawls: keep the slot for a laser
 	}
 	rank := func(k string) int {
 		if b.P.laserFirst && k == "laser" {
@@ -1557,7 +1627,9 @@ func (b *Agent) decide(o *Obs, act *Action) {
 			// nearby — they have to be looking my way or actually coming at me.
 			t.engage = t.dist < b.P.engageDist && (!b.notPractice || facing || t.closing > 1) ||
 				now-t.hitMe < 4 || facing && t.charging && t.dist < 120 ||
-				t.hp < 350 && t.dist < 120 || o.Alive <= 2
+				t.hp < 350 && t.dist < 120 || o.Alive <= 2 ||
+				// free-for-all, our laser against none: the one matchup where firing first pays
+				b.ffa() && laser != nil && !t.has("laser") && t.los && t.dist < 200 && hpR > 0.6
 		} else if t.dist < b.P.engageDist || now-t.hitMe < 6 || endgame {
 			t.engage = true
 		} else if t.closing > 3 && t.dist < 180 {
@@ -1649,6 +1721,20 @@ func (b *Agent) decide(o *Obs, act *Action) {
 		b.retreat = now-b.loseAt < 1.5 && b.loseAt > 0
 	}
 
+	// --- free-for-all: cover first, but never turn from a kill ---------------
+	var duckMx, duckMy float64
+	ducking := false
+	if b.ffa() {
+		finish := b.finishable(me, tgt, gun, laser)
+		if finish && hpR > 0.12 {
+			b.retreat = false
+		}
+		b.ffaDuck(o, tgt, laser, n, hpR, finish)
+		if b.duck {
+			duckMx, duckMy, ducking = b.duckMove(o, vis, laser)
+		}
+	}
+
 	// --- movement ------------------------------------------------------------
 	zx, zy := b.zoneGoal(zone, x, y)
 	zd := hyp(zx-x, zy-y)
@@ -1691,6 +1777,11 @@ func (b *Agent) decide(o *Obs, act *Action) {
 		mx, my = b.goTo(me, zx, zy)
 		boost = !(me.InZone && arrive < dl) && me.Energy > 5
 		mode = "zone"
+	} else if ducking {
+		// hurt under heavy fire with cover a short run away: get behind it and heal
+		mx, my = duckMx, duckMy
+		boost = me.Energy > 10 && (mx != 0 || my != 0)
+		mode = "duck"
 	} else if lt := b.lightningThreat(vis, light, endgame); lt != nil {
 		// A lightning mech is on top of us and we can't answer in kind — peel away.
 		mx, my = b.kiteAway(o, lt)
@@ -1733,6 +1824,11 @@ func (b *Agent) decide(o *Obs, act *Action) {
 			light != nil && foe.dist <= light.Stats["range"]+6 && me.Energy >= 3*light.Stats["energy"]
 		if !b.P.peek && (light != nil || laser != nil) {
 			armed = true
+		}
+		if b.ffa() && laser != nil && foe.dist > 45 && !laserOK {
+			// charge out of sight, step out only with the laser ready: plinking with the gun at range
+			// while the laser charges just stands us in the open for their beam
+			armed = false
 		}
 		aggr := -1.0
 		if armed {
@@ -1983,7 +2079,17 @@ func (b *Agent) decide(o *Obs, act *Action) {
 
 	// Don't give away our position when hurt and the target is far.
 	if tgt != nil && hpR < 0.6 && tgt.dist > 120 && now-b.lastHurt > 5 && tgt.hp > 0.3*tgt.maxHP {
-		act.Fire = [2]bool{}
+		if b.ffa() {
+			// only the gun goes quiet: letting go of a laser trigger fires it, and a laser at range is
+			// exactly the weapon to keep using from where we are
+			for i, w := range me.Weapons {
+				if i < 2 && w != nil && w.Kind != "laser" {
+					act.Fire[i] = false
+				}
+			}
+		} else {
+			act.Fire = [2]bool{}
+		}
 	}
 	// Pre-charge the laser while peeking at a hidden enemy.
 	if tgt == nil && foe != nil {
@@ -2207,4 +2313,110 @@ func (b *Agent) duckGunOnly(o *Obs, foes []*Contact, t *Contact, gunOnly, pressi
 		return 0, 0, false
 	}
 	return b.takeCover(o, foes)
+}
+
+// ---------------------------------------------------------------------------
+// Free-for-all fighting
+//
+// These rules apply only once the lobby is known to be a free-for-all (b.notPractice); against the
+// practice squad the bot plays exactly as before. In a free-for-all the laser decides most fights, and
+// the walls decide most laser duels: a beam needs a line, the charge does not. So: fight from behind
+// cover, charge out of sight and step out to fire; when hurt under heavy fire, get out of sight if a
+// wall is a short run away and heal; never run a long way in the open; never turn from a kill.
+
+// ffa reports whether the free-for-all rules apply.
+func (b *Agent) ffa() bool { return b.notPractice }
+
+// recentDmg is the damage mechs and drones did to us in the last secs seconds.
+func (b *Agent) recentDmg(secs float64) float64 {
+	keep := b.hits[:0]
+	sum := 0.0
+	for _, h := range b.hits {
+		if b.now-h.t < 6 {
+			keep = append(keep, h)
+			if b.now-h.t < secs {
+				sum += h.amt
+			}
+		}
+	}
+	b.hits = keep
+	return sum
+}
+
+// finishable reports whether t, in our sights right now, has so little health left that the shot we
+// have ready (a charged laser, or a few seconds of gun fire at this range) should end it.
+func (b *Agent) finishable(me *Self, t *Contact, gun, laser *Weapon) bool {
+	if t == nil || t.kind != "mech" || !t.los || t.seen != b.now {
+		return false
+	}
+	burst := 0.0
+	if gun != nil && opt(gun.Ammo, 0) >= 3 && t.dist <= 0.9*gun.Stats["range"] {
+		switch {
+		case t.dist < 60:
+			burst = 220
+		case t.dist < 120:
+			burst = 140
+		default:
+			burst = 70
+		}
+	}
+	if laser != nil && opt(laser.Charge, 0) >= laser.Stats["charge"]-0.3 && t.dist <= laser.Stats["range"]-5 {
+		capCubes := b.cfg.num(b.cfg.Cubes, "stat_cap", 10)
+		dmg := laser.Stats["damage"] * (1 + b.cfg.num(b.cfg.Cubes, "damage_per_cube", 0.04)*math.Min(me.Cubes, capCubes))
+		burst = math.Max(burst, 0.9*dmg)
+	}
+	return t.hp > 0 && t.hp <= burst
+}
+
+// ffaDuck keeps the "holding cover" state. Hit from range by a mech we have no clear edge over (our
+// laser against none is an edge) and taking real damage, we go for cover; we come back out healed, once
+// the laser we charged in cover is ready to fire, when the kill is one shot away, or when nothing is
+// close enough to hide behind (then we stand and shoot back: running far in the open is the worst of
+// all, a hurt mech that only runs is the one that dies).
+func (b *Agent) ffaDuck(o *Obs, tgt *Contact, laser *Weapon, n int, hpR float64, finish bool) {
+	now := b.now
+	dmg3 := b.recentDmg(3)
+	laserReady := laser != nil && opt(laser.Charge, 0) >= laser.Stats["charge"]-0.3
+	if b.duck {
+		healed := hpR >= 0.8 && now-b.lastHurt > 4
+		stale := now-b.duckAt > 15 && now-b.lastHurt > 6
+		peek := laserReady && hpR > 0.45 && n <= 1 && now-b.lastHurt > 1
+		if finish || healed || stale || peek || o.Alive <= 2 {
+			b.duck = false
+		}
+		return
+	}
+	if finish || o.Alive <= 2 || now-b.lastHurt > 1.5 || now-b.duckFailAt < 2 {
+		return
+	}
+	att, ok := b.tracks.get(b.hurtBy)
+	if ok && att.dist < 40 {
+		return // too close to break off: shooting back beats being shot in the back
+	}
+	if laser != nil && ok && !att.has("laser") && hpR > 0.4 {
+		return // our laser against none: that fight is ours to take
+	}
+	laserOnUs := now-b.laserHitAt < 3 && laser == nil
+	if laserOnUs || dmg3 > 150 || hpR < 0.55 || n >= 2 {
+		b.duck, b.duckAt = true, now
+	}
+}
+
+// duckMove is where to go while ducking: a spot a short run away that stays hidden from every
+// recent threat (and from the one that hit us, even unseen) when it steps aside. ok is false when
+// there is none close enough, which also ends the duck.
+func (b *Agent) duckMove(o *Obs, vis []*Contact, laser *Weapon) (float64, float64, bool) {
+	foes := vis
+	if att, ok := b.tracks.get(b.hurtBy); !ok || b.now-att.seen > 2.5 {
+		foes = append([]*Contact{b.ghostTrack(&o.Self)}, vis...)
+	}
+	steps := 28 // about 55 units of path
+	if b.now-b.laserHitAt < 3 && laser == nil {
+		steps = 45 // against a laser we cannot answer, cover is worth a longer run
+	}
+	mx, my, ok := b.takeCoverWithin(o, foes, steps, 6)
+	if !ok {
+		b.duck, b.duckFailAt = false, b.now
+	}
+	return mx, my, ok
 }
