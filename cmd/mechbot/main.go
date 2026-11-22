@@ -1,6 +1,6 @@
 // Command mechbot implements Apex-Go for Mech Royale (mechfight/1 over stdin/stdout).
 package main
-
+ 
 import (
 	"bufio"
 	"bytes"
@@ -14,13 +14,13 @@ import (
 	"apexbot/internal/proto"
 	"apexbot/internal/world"
 )
-
+ 
 type agent interface {
 	Act(o *proto.Obs) proto.Action
 }
-
+ 
 type blind struct{}
-
+ 
 func (blind) Act(o *proto.Obs) proto.Action {
 	a := proto.NewAction(o.Tick)
 	me := o.Self
@@ -41,7 +41,7 @@ func (blind) Act(o *proto.Obs) proto.Action {
 		d := math.Hypot(m.Pos[0]-me.Pos[0], m.Pos[1]-me.Pos[1])
 		if best < 0 || d < best {
 			best = d
-			tf := d / 252
+			tf := d / 252 
 			a.Aim = [2]float64{
 				math.Atan2(m.Pos[1]+m.Vel[1]*tf-me.Pos[1], m.Pos[0]+m.Vel[0]*tf-me.Pos[0]),
 				math.Atan2(m.Pos[2]+4.5-me.Pos[2]-7, math.Max(d, 1)),
