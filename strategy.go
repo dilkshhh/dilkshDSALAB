@@ -2550,19 +2550,22 @@ func (b *Agent) duckMove(o *Obs, vis []*Contact, laser *Weapon) (float64, float6
 	if !ok && len(foes) > 1 {
 		// Nowhere hidden from all of them (they may be on opposite sides of us): hide from the one
 		// that matters most, the mech shooting at us, or else the nearest one.
-		var key *Contact
+		order := append([]*Contact(nil), foes...)
+		x, y := o.Self.Pos[0], o.Self.Pos[1]
+		sort.SliceStable(order, func(i, j int) bool {
+			return hyp(order[i].pos[0]-x, order[i].pos[1]-y) < hyp(order[j].pos[0]-x, order[j].pos[1]-y)
+		})
 		if att, found := b.tracks.get(b.hurtBy); found && b.now-b.lastHurt < 3 && b.now-att.seen < 2.5 {
-			key = att
+			order = append([]*Contact{att}, order...) // the one shooting at us first
 		}
-		for _, f := range foes {
-			if key == nil || hyp(f.pos[0]-o.Self.Pos[0], f.pos[1]-o.Self.Pos[1]) < hyp(key.pos[0]-o.Self.Pos[0], key.pos[1]-o.Self.Pos[1]) && b.now-b.lastHurt >= 3 {
-				key = f
+		for _, key := range order[:min(len(order), 4)] {
+			b.coverFailAt = -99 // the search that just failed was for a different set of eyes
+			if mx, my, ok = b.takeCoverWithin(o, []*Contact{key}, steps, margin); ok {
+				if debug {
+					fmt.Fprintf(os.Stderr, "duckMove t=%.1f no cover from all %d, hiding from %d\n", b.now, len(foes), key.id)
+				}
+				break
 			}
-		}
-		b.coverFailAt = -99 // the search that just failed was for a different set of eyes
-		mx, my, ok = b.takeCoverWithin(o, []*Contact{key}, steps, margin)
-		if debug {
-			fmt.Fprintf(os.Stderr, "duckMove t=%.1f all-foes failed (%d), fallback on %d: ok=%v\n", b.now, len(foes), key.id, ok)
 		}
 	} else if debug {
 		fmt.Fprintf(os.Stderr, "duckMove t=%.1f foes=%d steps=%d margin=%.0f ok=%v move=%.2f,%.2f\n", b.now, len(foes), steps, margin, ok, mx, my)
