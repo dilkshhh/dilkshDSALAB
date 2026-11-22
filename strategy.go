@@ -1076,7 +1076,7 @@ func (b *Agent) wantPickup(me *Self, kind string) bool {
 	if kind == "mortar" && b.P.noMortar {
 		return false
 	}
-	if kind == "lightning" && b.notPractice {
+	if kind == "lightning" && b.ffa() {
 		return false // in a free-for-all its short arc drags us into brawls: keep the slot for a laser
 	}
 	rank := func(k string) int {
@@ -1346,7 +1346,7 @@ func (b *Agent) pickLoot(o *Obs, hpRatio float64, busy bool) *lootPick {
 	for _, p := range b.pickups.values() {
 		r := b.P.lootRadius
 		ls := b.P.laserSeek
-		if b.notPractice { // in a ranked game it's worth walking further for a laser
+		if b.ffa() { // in a free-for-all (and every opening) it's worth walking far for a laser
 			ls = math.Max(ls, 240)
 		}
 		seek := p.kind == "laser" && ls > r
@@ -2497,7 +2497,8 @@ func (b *Agent) ffaDuck(o *Obs, tgt *Contact, laser *Weapon, vis []*Contact, n i
 	}
 	if now-b.lastHurt > 1.5 {
 		// not hit: in the opening, do not stand where two mechs (or a laser we cannot answer) can see us
-		if now < 60 && (exposed >= 2 || laserEyes && laser == nil) && !(laser != nil && !laserEyes) {
+		// (two watchers: in the opening; a laser we cannot answer: all match long)
+		if (now < 60 && exposed >= 2 && !(laser != nil && !laserEyes)) || laserEyes && laser == nil {
 			b.duck, b.duckSeen, b.duckAt = true, true, now
 		}
 		return
