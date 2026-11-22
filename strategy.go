@@ -2543,6 +2543,21 @@ func (b *Agent) duckMove(o *Obs, vis []*Contact, laser *Weapon) (float64, float6
 		steps, margin = 50, 0
 	}
 	mx, my, ok := b.takeCoverWithin(o, foes, steps, margin)
+	if !ok && len(foes) > 1 {
+		// Nowhere hidden from all of them (they may be on opposite sides of us): hide from the one
+		// that matters most, the mech shooting at us, or else the nearest one.
+		var key *Contact
+		if att, found := b.tracks.get(b.hurtBy); found && b.now-b.lastHurt < 3 && b.now-att.seen < 2.5 {
+			key = att
+		}
+		for _, f := range foes {
+			if key == nil || hyp(f.pos[0]-o.Self.Pos[0], f.pos[1]-o.Self.Pos[1]) < hyp(key.pos[0]-o.Self.Pos[0], key.pos[1]-o.Self.Pos[1]) && b.now-b.lastHurt >= 3 {
+				key = f
+			}
+		}
+		b.coverFailAt = -99 // the search that just failed was for a different set of eyes
+		mx, my, ok = b.takeCoverWithin(o, []*Contact{key}, steps, margin)
+	}
 	if !ok {
 		b.duck, b.duckFailAt = false, b.now
 	}
