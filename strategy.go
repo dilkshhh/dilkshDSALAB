@@ -185,6 +185,9 @@ type lootPick struct {
 // dmgHit is one damage event against us.
 type dmgHit struct{ t, amt float64 }
 
+// badSpot is a place our map said was hidden but where we were shot anyway, and until when to avoid it.
+type badSpot struct{ x, y, until float64 }
+
 // ---------------------------------------------------------------------------
 // Tunable behaviour parameters
 
@@ -293,12 +296,15 @@ type Agent struct {
 	seekBan     map[int]float64 // mechs we went looking for and did not find, until when
 
 	// free-for-all fighting (see ffaDuck)
-	hits       []dmgHit // damage taken from mechs and drones in the last few seconds
-	hurtBy     int      // who hit us last (-1: unknown)
-	laserHitAt float64  // when a laser last hit us
-	duck       bool     // hurt under heavy fire: holding cover to heal
-	duckAt     float64  // when the current duck began
-	duckFailAt float64  // when a duck last found no cover close enough
+	hits       []dmgHit  // damage taken from mechs and drones in the last few seconds
+	hurtBy     int       // who hit us last (-1: unknown)
+	laserHitAt float64   // when a laser last hit us
+	duck       bool      // hurt under heavy fire: holding cover to heal
+	duckAt     float64   // when the current duck began
+	duckFailAt float64   // when a duck last found no cover close enough
+	duckSeen   bool      // the duck began because mechs could see us (not because we were hit)
+	exposedAt  float64   // last time a mech had a clear line to us
+	badCover   []badSpot // "hidden" spots where we were hit all the same
 
 	tracks  *omap[*Contact]
 	npcs    *omap[*Contact]
@@ -364,7 +370,7 @@ func NewAgent(h *Hello) *Agent {
 		tracks: newOmap[*Contact](), npcs: newOmap[*Contact](), crates: newOmap[*thing](), cubes: newOmap[*thing](), pickups: newOmap[*thing](),
 		bad: map[int]float64{}, seekBan: map[int]float64{}, routeAt: -99, strafe: 1, coverAt: -99, coverFailAt: -99, lastHurt: -100, lootID: -1,
 		homeAt: -99, stuckSince: -1, unstuckDir: [2]float64{1, 0}, lastThreat: -100, escAt: -99, stickID: -1, stickAt: -99, loseAt: -99,
-		hurtBy: -1, laserHitAt: -100, duckAt: -99, duckFailAt: -99,
+		hurtBy: -1, laserHitAt: -100, duckAt: -99, duckFailAt: -99, exposedAt: -99,
 		mode: "idle"}
 	var w *World
 	var err error
@@ -970,6 +976,14 @@ func (b *Agent) takeCoverWithin(o *Obs, foes []*Contact, maxSteps int, margin fl
 		return true
 	}
 
+	// Shot at the very spot our map calls hidden: the map is wrong about it. Never mind the
+	// cached goal, and keep away from that spot for a while.
+	hitNow := b.ffa() && b.now-b.lastHurt < 1
+	if hitNow && b.coverOK && hyp(b.coverGoal[0]-x, b.coverGoal[1]-y) < 3 {
+		b.badCover = append(b.badCover, badSpot{x, y, b.now + 15})
+		b.coverOK, b.coverAt = false, -99
+	}
+
 	// Re-use the last cover goal for a short while.
 	if b.coverOK && b.now-b.coverAt < 0.4 {
 		mx, my := b.goToCover(me)
@@ -979,7 +993,7 @@ func (b *Agent) takeCoverWithin(o *Obs, foes []*Contact, maxSteps int, margin fl
 		return 0, 0, false
 	}
 	b.coverAt = b.now
-	if hidden(x, y) && b.zonePenalty(&o.Zone, x, y) == 0 {
+	if !hitNow && !b.isBad(x, y) && hidden(x, y) && b.zonePenalty(&o.Zone, x, y) == 0 {
 		b.coverOK, b.coverGoal = true, [2]float64{x, y}
 		return 0, 0, true
 	}
@@ -1002,7 +1016,7 @@ func (b *Agent) takeCoverWithin(o *Obs, foes []*Contact, maxSteps int, margin fl
 		if (cx+cy)%2 == 0 && d > 0 { // evaluate on a checkerboard to save sight tests
 			px, py := g.pos(c)
 			evals++
-			if hidden(px, py) {
+			if !b.isBad(px, py) && hidden(px, py) {
 				s := float64(2*d) + b.zonePenalty(&o.Zone, px, py)
 				m := math.Inf(1)
 				for _, f := range near {
@@ -1062,7 +1076,7 @@ func (b *Agent) wantPickup(me *Self, kind string) bool {
 	if kind == "mortar" && b.P.noMortar {
 		return false
 	}
-	if kind == "lightning" && b.ffa() {
+	if kind == "lightning" && b.notPractice {
 		return false // in a free-for-all its short arc drags us into brawls: keep the slot for a laser
 	}
 	rank := func(k string) int {
@@ -1760,7 +1774,7 @@ func (b *Agent) decide(o *Obs, act *Action) {
 		if finish && hpR > 0.12 {
 			b.retreat = false
 		}
-		b.ffaDuck(o, tgt, laser, n, hpR, finish)
+		b.ffaDuck(o, tgt, laser, vis, n, hpR, finish)
 		if b.duck {
 			duckMx, duckMy, ducking = b.duckMove(o, vis, laser)
 		}
@@ -1943,6 +1957,20 @@ func (b *Agent) decide(o *Obs, act *Action) {
 		}
 	} else {
 		mode = "idle"
+	}
+
+	// Never stand still while being shot (free-for-all rules): whatever the plan says, step across
+	// the line of fire. (A showdown death: six seconds motionless under fire from 150 units.)
+	if b.ffa() && now-b.lastHurt < 1 && mx == 0 && my == 0 && mode != "escape" && mode != "unstuck" {
+		for _, s := range [2]float64{b.strafe, -b.strafe} {
+			a := b.hurtBearing + s*math.Pi/2
+			cx, cy := math.Cos(a), math.Sin(a)
+			if b.grid == nil || b.grid.lineOK(x, y, x+6*cx, y+6*cy) {
+				mx, my = cx, cy
+				mode += "+jink"
+				break
+			}
+		}
 	}
 
 	if launch {
@@ -2372,8 +2400,11 @@ func (b *Agent) retreatCover(o *Obs, vis []*Contact, laser *Weapon) (float64, fl
 // cover, charge out of sight and step out to fire; when hurt under heavy fire, get out of sight if a
 // wall is a short run away and heal; never run a long way in the open; never turn from a kill.
 
-// ffa reports whether the free-for-all rules apply.
-func (b *Agent) ffa() bool { return b.notPractice }
+// ffa reports whether the free-for-all rules apply: in a known free-for-all, and in every match from
+// the first second until the practice stance takes over at 20 s. A free-for-all is only recognised once
+// a mech we did not kill has died, and the showdowns showed our deaths coming before that: at 11 and
+// 18 s, standing in sight of two mechs with only a gun.
+func (b *Agent) ffa() bool { return !b.pracOn }
 
 // recentDmg is the damage mechs and drones did to us in the last secs seconds.
 func (b *Agent) recentDmg(secs float64) float64 {
@@ -2421,20 +2452,50 @@ func (b *Agent) finishable(me *Self, t *Contact, gun, laser *Weapon) bool {
 // the laser we charged in cover is ready to fire, when the kill is one shot away, or when nothing is
 // close enough to hide behind (then we stand and shoot back: running far in the open is the worst of
 // all, a hurt mech that only runs is the one that dies).
-func (b *Agent) ffaDuck(o *Obs, tgt *Contact, laser *Weapon, n int, hpR float64, finish bool) {
+//
+// In the opening (the first 60 s) we also duck before being hit: when two mechs can see us, or one
+// with a laser while we have none. In the showdowns our early deaths all started that way, standing
+// in sight of mechs that then picked up a laser and charged it in plain view.
+func (b *Agent) ffaDuck(o *Obs, tgt *Contact, laser *Weapon, vis []*Contact, n int, hpR float64, finish bool) {
 	now := b.now
 	dmg3 := b.recentDmg(3)
 	laserReady := laser != nil && opt(laser.Charge, 0) >= laser.Stats["charge"]-0.3
+	exposed, laserEyes := 0, false
+	for _, t := range vis {
+		if t.seen == now && t.los && t.dist < 200 {
+			exposed++
+			laserEyes = laserEyes || t.has("laser")
+		}
+	}
+	if exposed > 0 {
+		b.exposedAt = now
+	}
 	if b.duck {
-		healed := hpR >= 0.8 && now-b.lastHurt > 4
-		stale := now-b.duckAt > 15 && now-b.lastHurt > 6
-		peek := laserReady && hpR > 0.45 && n <= 1 && now-b.lastHurt > 1
-		if finish || healed || stale || peek || o.Alive <= 2 {
+		if b.duckSeen && now-b.lastHurt < 1 {
+			b.duckSeen = false // hit after all: from here on the hurt rules decide when we come out
+		}
+		var done bool
+		if b.duckSeen {
+			done = now-b.exposedAt > 3 || now-b.duckAt > 15
+		} else {
+			healed := hpR >= 0.8 && now-b.lastHurt > 4
+			stale := now-b.duckAt > 15 && now-b.lastHurt > 6
+			peek := laserReady && hpR > 0.45 && n <= 1 && now-b.lastHurt > 1
+			done = healed || stale || peek
+		}
+		if finish || done || o.Alive <= 2 {
 			b.duck = false
 		}
 		return
 	}
-	if finish || o.Alive <= 2 || now-b.lastHurt > 1.5 || now-b.duckFailAt < 2 {
+	if finish || o.Alive <= 2 || now-b.duckFailAt < 2 {
+		return
+	}
+	if now-b.lastHurt > 1.5 {
+		// not hit: in the opening, do not stand where two mechs (or a laser we cannot answer) can see us
+		if now < 60 && (exposed >= 2 || laserEyes && laser == nil) && !(laser != nil && !laserEyes) {
+			b.duck, b.duckSeen, b.duckAt = true, true, now
+		}
 		return
 	}
 	att, ok := b.tracks.get(b.hurtBy)
@@ -2446,8 +2507,22 @@ func (b *Agent) ffaDuck(o *Obs, tgt *Contact, laser *Weapon, n int, hpR float64,
 	}
 	laserOnUs := now-b.laserHitAt < 3 && laser == nil
 	if laserOnUs || dmg3 > 150 || hpR < 0.55 || n >= 2 {
-		b.duck, b.duckAt = true, now
+		b.duck, b.duckSeen, b.duckAt = true, false, now
 	}
+}
+
+// isBad reports whether (x, y) is near a spot where we were shot although our map called it hidden
+// (free-for-all rules only).
+func (b *Agent) isBad(x, y float64) bool {
+	if !b.ffa() {
+		return false
+	}
+	for _, s := range b.badCover {
+		if s.until > b.now && hyp(s.x-x, s.y-y) < 5 {
+			return true
+		}
+	}
+	return false
 }
 
 // duckMove is where to go while ducking: a spot a short run away that stays hidden from every
