@@ -233,7 +233,7 @@ type Tuning struct {
 const buildVariant = "credit"
 
 // rngSalt changes only the dice: builds that differ in it alone play the same game with other luck.
-var rngSalt uint64 = 0
+var rngSalt uint64 = 15
 
 // variant applies buildVariant on top of the practice parameter set.
 func variant(p Tuning) Tuning {
