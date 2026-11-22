@@ -42,8 +42,17 @@ The A/B simulator used for development is external and uncommitted (see Attribut
 - Local relative A/B testing uses a separate, uncommitted headless simulator
   derived from the public MIT-licensed repository
   `anthonyteti/buildathon-mech-royale`, driven through its protocol-speaking
-  external-bot hook. **No third-party bot code is included in the submitted
-  image**; every file in the Docker context is our own Python or an official kit file.
+  external-bot hook (dev harness only; not in the image).
+- **Code we brought — the Go engine (`cmd/mechbot`, `internal/`) is derived from
+  the public MIT-licensed repository
+  [`andrew-zhouu/builders-mech-royale-2026`](https://github.com/andrew-zhouu/builders-mech-royale-2026)
+  (team TigerTown27).** Large parts are used unchanged (`internal/world/*`,
+  `internal/proto/proto.go`, `internal/bot/{peek,util,hidemap,lead,move,variants}.go`,
+  `internal/bot/hidemap.gz`); the rest of `internal/bot` and `cmd/mechbot` are
+  modified versions with our own additions (anti-lightning, smart-fire lethal
+  maths, laser-cooldown tracking, rear-arc avoidance, cover reload, FFA/practice
+  gating and tuning). Its copyright and permission notice are reproduced in
+  `THIRD_PARTY_NOTICES.md`.
 - Released under the MIT License (see `LICENSE`).
 
 ## Build and verify
