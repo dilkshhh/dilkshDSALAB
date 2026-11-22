@@ -119,6 +119,36 @@ type Contact struct {
 	los      bool
 	closing  float64 // closing speed towards us
 	engage   bool
+	velS     [3]float64 // velocity smoothed over the last few tenths of a second
+	straight float64    // how steadily it keeps one heading: 1 = a straight line, near 0 = jinking
+}
+
+// trackMotion folds this observation's velocity into the smoothed velocity and the steadiness
+// measure. Call it before t.seen is set to the current time.
+func (t *Contact) trackMotion(now float64) {
+	v := t.vel
+	if now-t.seen > 0.35 { // first sighting, or out of view for a while: start over
+		t.velS = [3]float64{v[0], v[1], v[2]}
+		t.straight = 0.5
+		return
+	}
+	sp, sps := hyp(v[0], v[1]), hyp(t.velS[0], t.velS[1])
+	agree := 0.5 // slow or standing: no evidence either way
+	if sp > 1 && sps > 1 {
+		agree = math.Max(0, (v[0]*t.velS[0]+v[1]*t.velS[1])/(sp*sps))
+	}
+	t.straight = 0.8*t.straight + 0.2*agree
+	for i := range t.velS {
+		t.velS[i] = 0.6*t.velS[i] + 0.4*v[i]
+	}
+}
+
+// leadVel is the velocity to lead t by: smoothed, and scaled down for a mech that keeps changing
+// direction (full lead on one running straight; little on one jinking about, which stays near
+// where it is), so its dodging does not drag our aim off to the side.
+func (t *Contact) leadVel() []float64 {
+	s := clamp((t.straight-0.3)/0.6, 0.2, 1)
+	return []float64{t.velS[0] * s, t.velS[1] * s, t.vel[2]}
 }
 
 func (t *Contact) has(k string) bool {
@@ -435,6 +465,7 @@ func (b *Agent) perceive(o *Obs) {
 		}
 		t.hp, t.maxHP = opt(m.HP, maxHP), opt(m.MaxHP, maxHP)
 		t.cubes, t.weapons, t.charging = opt(m.Cubes, 0), m.Weapons, m.Charging
+		t.trackMotion(now)
 		t.seen = now
 		dx, dy := m.Pos[0]-me[0], m.Pos[1]-me[1]
 		t.dist = hyp(dx, dy)
@@ -1794,7 +1825,7 @@ func (b *Agent) decide(o *Obs, act *Action) {
 		boost = me.Energy > 30 && (mx != 0 || my != 0)
 		mode = "duck"
 	} else if b.retreat && !strong && !endgame {
-		if cx, cy, ok := b.takeCover(o, vis); ok {
+		if cx, cy, ok := b.retreatCover(o, vis, laser); ok {
 			mx, my = cx, cy
 			boost = me.Energy > 10 && (mx != 0 || my != 0)
 			mode = "cover"
@@ -1984,6 +2015,9 @@ func (b *Agent) decide(o *Obs, act *Action) {
 			p[2] = tgt.pos[2] + 0.85*hgt // aim at the head if the body is covered
 		}
 		ap, vel = p[:], tgt.vel
+		if b.ffa() {
+			vel = tgt.leadVel()
+		}
 	} else if aimTrack != nil {
 		rad, hgt = b.cfg.Npc["radius"], b.cfg.Npc["height"]
 		ap = []float64{aimTrack.pos[0], aimTrack.pos[1], aimTrack.pos[2] + 0.5*hgt}
@@ -2312,7 +2346,21 @@ func (b *Agent) duckGunOnly(o *Obs, foes []*Contact, t *Contact, gunOnly, pressi
 	if !b.notPractice || !gunOnly || pressing || t == nil || t.dist <= 90 {
 		return 0, 0, false
 	}
-	return b.takeCover(o, foes)
+	return b.takeCoverWithin(o, foes, 45, 6) // only cover a short run away: no long walk in the open
+}
+
+// retreatCover is the cover to fall back to when retreating. In a free-for-all only cover a short run
+// away counts; with none that close we stay and fight, strafing as we shoot, because a mech running
+// a long straight line in the open is the easiest target there is.
+func (b *Agent) retreatCover(o *Obs, vis []*Contact, laser *Weapon) (float64, float64, bool) {
+	if !b.ffa() {
+		return b.takeCover(o, vis)
+	}
+	steps := 28
+	if b.now-b.laserHitAt < 3 && laser == nil {
+		steps = 45
+	}
+	return b.takeCoverWithin(o, vis, steps, 6)
 }
 
 // ---------------------------------------------------------------------------
