@@ -2533,11 +2533,15 @@ func (b *Agent) duckMove(o *Obs, vis []*Contact, laser *Weapon) (float64, float6
 	if att, ok := b.tracks.get(b.hurtBy); !ok || b.now-att.seen > 2.5 {
 		foes = append([]*Contact{b.ghostTrack(&o.Self)}, vis...)
 	}
-	steps := 28 // about 55 units of path
+	steps, margin := 28, 6.0 // about 55 units of path, to cover that holds when they step aside
 	if b.now-b.laserHitAt < 3 && laser == nil {
 		steps = 45 // against a laser we cannot answer, cover is worth a longer run
 	}
-	mx, my, ok := b.takeCoverWithin(o, foes, steps, 6)
+	if b.duckSeen {
+		// seen but not yet shot at: the walk costs nothing yet, so any cover within 100 units will do
+		steps, margin = 50, 0
+	}
+	mx, my, ok := b.takeCoverWithin(o, foes, steps, margin)
 	if !ok {
 		b.duck, b.duckFailAt = false, b.now
 	}
