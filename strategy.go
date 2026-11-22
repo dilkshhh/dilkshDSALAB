@@ -2470,6 +2470,10 @@ func (b *Agent) ffaDuck(o *Obs, tgt *Contact, laser *Weapon, vis []*Contact, n i
 	if exposed > 0 {
 		b.exposedAt = now
 	}
+	if debug {
+		fmt.Fprintf(os.Stderr, "duck t=%.1f vis=%d exposed=%d laserEyes=%v duck=%v seen=%v hurt=%.1f\n",
+			now, len(vis), exposed, laserEyes, b.duck, b.duckSeen, now-b.lastHurt)
+	}
 	if b.duck {
 		if b.duckSeen && now-b.lastHurt < 1 {
 			b.duckSeen = false // hit after all: from here on the hurt rules decide when we come out
