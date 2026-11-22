@@ -2530,7 +2530,8 @@ func (b *Agent) isBad(x, y float64) bool {
 // there is none close enough, which also ends the duck.
 func (b *Agent) duckMove(o *Obs, vis []*Contact, laser *Weapon) (float64, float64, bool) {
 	foes := vis
-	if att, ok := b.tracks.get(b.hurtBy); !ok || b.now-att.seen > 2.5 {
+	if att, ok := b.tracks.get(b.hurtBy); b.now-b.lastHurt < 3 && (!ok || b.now-att.seen > 2.5) {
+		// shot by something we cannot see: hide from a stand-in placed along the bearing of the hit
 		foes = append([]*Contact{b.ghostTrack(&o.Self)}, vis...)
 	}
 	steps, margin := 28, 6.0 // about 55 units of path, to cover that holds when they step aside
