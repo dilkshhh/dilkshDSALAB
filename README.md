@@ -4,9 +4,9 @@ Team 4141's entry for the Builders Buildathon 2026 Mech Royale track, by Dilksh 
 
 **This entry reuses other people's code.** Most of the bot was written by the authors credited below.
 
-- **This commit:** the final entry's bot. Every file except this README is identical to
-  `b833cd0adab280a62b18a4e6b1402c59c647db1d`.
-- **The `main` branch:** an older snapshot of the same upstream project. It is not the final entry.
+- **Submitted entry:** commit `b833cd0adab280a62b18a4e6b1402c59c647db1d`.
+- **This branch (`main`):** the same bot, reduced to the files needed to build it, with the credits below. The
+  bot's source and the `Dockerfile` are unchanged and build the identical program.
 
 ## Credits
 
@@ -15,12 +15,12 @@ Team 4141's entry for the Builders Buildathon 2026 Mech Royale track, by Dilksh 
 - Source: https://github.com/ahmad-ovh/Buildathon
 - License: MIT, Copyright (c) 2026 ahmad-ovh
 - Used in the final entry: the whole Apex-Go v3 bot, from commit `56e0f76`, with the license notices added in
-  `54919f3`. That covers `cmd/mechbot/`, `internal/`, the `Dockerfile`, the older Python bot, and the project
-  documentation and tooling.
+  `54919f3`. That covers `cmd/mechbot/`, `internal/` and the `Dockerfile`. (The submitted commit also held
+  their older Python bot, documentation and tooling, and the official Builders kit files; none are needed to
+  build the bot, so they are not on this branch.)
 - Their contribution includes the changes they made to the engine credited in section 2, such as lightning
   avoidance, laser-cooldown tracking, rear-arc avoidance, reloading behind cover, kill-aware laser release,
   and the practice and free-for-all tuning.
-- Used on `main`: their commit `f29e4d3`, nearly unchanged (see section 4).
 
 ### 2. andrew-zhouu/builders-mech-royale-2026 (team TigerTown27): the engine underneath
 
@@ -51,14 +51,9 @@ Team 4141's entry for the Builders Buildathon 2026 Mech Royale track, by Dilksh 
 ### 4. What team 4141 changed
 
 - Final entry: combined sections 1 and 3, removed the upstream chat transcripts, and built and tested the result.
-- `main`: renamed the bot to PROFESSOR, added code comments and left out some upstream documents and transcripts.
+- `main`: removed the files that are not needed to build the bot and wrote this README.
 
-### 5. Official bot kit (Builders)
-
-- Source: https://www.joinbuilders.org/buildathon/tracks/builders
-- Files: `mechfight.py`, `mechfight.schema.json`, `check/`, `arena/v2/` and `tools/example_bot.py`
-
-### 6. Earlier versions in this repository's history (not in the final entry)
+### 5. Earlier versions on other branches (not in the final entry)
 
 - **giddygiddyboy** (https://github.com/justnau/giddygiddyboy-mech-royale), MIT, Copyright (c) 2026 giddygiddyboy:
   the earlier Go bot (`pilot.go`, `strategy.go`, `terrain.go`), including commit `c512d8d` and the `exp-v5` to
